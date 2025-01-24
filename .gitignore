@@ -1,0 +1,7 @@
+.aider*
+.env
+
+
+# Added by cargo
+
+/target
