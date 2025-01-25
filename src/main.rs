@@ -1,17 +1,20 @@
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use axum::{routing::get, Router};
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::io::AsyncWriteExt;
+use tokio::task::JoinSet;
 
 mod consts;
 mod crawler;
+mod indexer;
 mod routes;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Initial crawling/indexing.
-    initial_crawl_and_index().await.context("Failed to crawl and index")?;
+    initial_crawl_and_index()
+        .await
+        .context("Failed to crawl and index")?;
 
     println!("Server starting on http://localhost:{}", consts::PORT);
     run_server().await.context("Failed to run server")?;
@@ -35,34 +38,30 @@ async fn run_server() -> anyhow::Result<()> {
 async fn initial_crawl_and_index() -> anyhow::Result<()> {
     const MAX_PAGES_PER_DOMAIN: u32 = 10;
 
-    let stdout = Arc::new(Mutex::new(tokio::io::stdout()));
-
+    // We assume one valid domain per line.
     let domains = tokio::fs::read_to_string(consts::DOMAINS_FILE).await?;
     // TODO: remove the `take`. Just want a small test set for now.
     let domains = domains.lines().take(2);
 
-    // Create index directory if it doesn't exist
-    let index_path = PathBuf::from(consts::SEARCH_INDEX_DIR);
-    tokio::fs::create_dir_all(&index_path).await?;
+    let indexer = indexer::Indexer::new(consts::SEARCH_INDEX_DIR).await?;
 
-    // let indexer = indexer::Indexer::new(&index_path)?;
+    // Have separate tasks for each domain. We'll process multiple domains in parallel, and
+    // hopefully not get blocked or rate-limited from any target domain.
+    let mut tasks_set: JoinSet<anyhow::Result<()>> = JoinSet::new();
 
     for domain in domains {
         println!("Crawling domain: {}", domain);
 
-        let mut website = crawler::init_crawler(domain, MAX_PAGES_PER_DOMAIN)?;
-        let mut rx2 = website.subscribe(16).unwrap();
-        let stdout = stdout.clone();
+        let mut website = crawler::init(domain, MAX_PAGES_PER_DOMAIN)?;
+        let mut rx2 = website
+            .subscribe(16)
+            .context("Failed to subscribe to website crawler")?;
+        let mut stdout = tokio::io::stdout();
 
-        tokio::join!(
-            async move {
-                website.crawl().await;
-                website.unsubscribe();
-            },
-            async move {
+        tasks_set.spawn(async move {
+            let join_handle = tokio::task::spawn(async move {
                 while let Ok(page) = rx2.recv().await {
-                    let _ = stdout.lock()
-                        .expect("failed to access poisoned mutex (another thread panicked while holding the mutex)")
+                    stdout
                         .write_all(
                             format!(
                                 "- {} -- Bytes transferred {:?} -- HTML Size {:?} -- Links: {:?}\n",
@@ -74,20 +73,26 @@ async fn initial_crawl_and_index() -> anyhow::Result<()> {
                                     _ => 0,
                                 }
                             )
-                                .as_bytes(),
+                            .as_bytes(),
                         )
-                        .await;
+                        .await?;
+                    stdout.flush().await?;
                 }
-            }
-        );
 
-        // for page_url in pages {
-        //     // For now, we're just indexing the URLs
-        //     // In a real implementation, we'd fetch and parse the content
-        //     indexer.add_page(&page_url, &page_url)?;
-        //     println!("Indexed: {}", page_url);
-        // }
+                Ok(())
+            });
+
+            // TODO: Use `scrape` to get the HTML documents for the website.
+            website.crawl().await;
+            website.unsubscribe();
+
+            join_handle.await.unwrap()
+        });
     }
+
+    // Wait for all domain crawlers to finish.
+    // TODO: Log any tasks that early-returned an error.
+    let _ = tasks_set.join_all().await;
 
     Ok(())
 }

@@ -7,7 +7,7 @@ use spider::{
 };
 use tokio::time::Duration;
 
-pub fn init_crawler(url: &str, page_limit: u32) -> anyhow::Result<Website> {
+pub fn init(url: &str, page_limit: u32) -> anyhow::Result<Website> {
     let mut interception = RequestInterceptConfiguration::new(true);
     interception.block_javascript = true;
 
@@ -26,6 +26,7 @@ pub fn init_crawler(url: &str, page_limit: u32) -> anyhow::Result<Website> {
         .with_stealth(true)
         .with_return_page_links(true)
         .with_fingerprint(true)
+        .with_respect_robots_txt(true)
         // .with_proxies(Some(vec!["http://localhost:8888".into()]))
         // .with_chrome_connection(Some("http://127.0.0.1:9222/json/version".into()))
         .build()?)
