@@ -10,7 +10,7 @@ mod utils;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Start the background indexing task. Periodically commits.
-    let indexer_tx = indexer::start()
+    let (_indexer, indexer_tx) = indexer::start()
         .await
         .context("Failed to start background indexer")?;
 
