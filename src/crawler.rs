@@ -1,13 +1,19 @@
-use anyhow;
-use spider::configuration::WaitForSelector;
-use spider::tokio;
-use spider::website::Website;
+use anyhow::{self, Context};
 use spider::{
-    configuration::WaitForIdleNetwork, features::chrome_common::RequestInterceptConfiguration,
+    configuration::{WaitForIdleNetwork, WaitForSelector},
+    features::chrome_common::RequestInterceptConfiguration,
+    tokio,
+    website::Website,
 };
-use tokio::time::Duration;
+use std::sync::{
+    atomic::{AtomicU32, Ordering},
+    Arc,
+};
+use tokio::{io::AsyncWriteExt, task::JoinSet, time::Duration};
 
-pub fn init(url: &str, page_limit: u32) -> anyhow::Result<Website> {
+use crate::consts;
+
+fn init(url: &str, page_limit: u32) -> anyhow::Result<Website> {
     let mut interception = RequestInterceptConfiguration::new(true);
     interception.block_javascript = true;
 
@@ -30,4 +36,84 @@ pub fn init(url: &str, page_limit: u32) -> anyhow::Result<Website> {
         // .with_proxies(Some(vec!["http://localhost:8888".into()]))
         // .with_chrome_connection(Some("http://127.0.0.1:9222/json/version".into()))
         .build()?)
+}
+
+pub async fn initial_crawl() -> anyhow::Result<()> {
+    // We assume one valid domain per line.
+    let domains = tokio::fs::read_to_string(consts::DOMAINS_FILE).await?;
+    // TODO: remove the `take`. Just want a small test set for now.
+    let domains = domains.lines().take(2);
+
+    // Have separate tasks for each domain. We'll process multiple domains in parallel, and
+    // hopefully not get blocked or rate-limited from any target domain. This also follows the
+    // `spider` examples (except they didn't use a JoinSet).
+    let mut crawl_domain_tasks: JoinSet<anyhow::Result<()>> = JoinSet::new();
+
+    for domain in domains {
+        println!("Crawling domain: {}", domain);
+
+        let mut website = init(domain, consts::MAX_PAGES_PER_DOMAIN)?;
+        let mut rx2 = website
+            .subscribe(16)
+            .context("Failed to subscribe to website crawler")?;
+        let domain = Arc::new(domain.to_owned()); // Create owned value for the async task.
+
+        crawl_domain_tasks.spawn(async move {
+            // Spawn task that receives pages from the crawler.
+            let recv_handle = tokio::task::spawn(async move {
+                let page_count = Arc::new(AtomicU32::new(0));
+
+                let mut crawl_page_tasks: JoinSet<anyhow::Result<()>> = JoinSet::new();
+
+                while let Ok(page) = rx2.recv().await {
+                    let domain = domain.clone();
+                    let page_count = page_count.clone();
+
+                    // We use async and potentially-blocking methods, so spawn a task to avoid
+                    // losing messages. See [`spider::website::Website::subscribe`].
+                    crawl_page_tasks.spawn(async move {
+                        let url = page.get_url();
+                        let html = page.get_html();
+
+                        // Provide some visual indication of crawl progress.
+                        let cur_count = page_count
+                            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| Some(x + 1))
+                            .unwrap_or_else(|e| e);
+                        if cur_count % consts::LOG_INTERVAL_PER_DOMAIN == 0 {
+                            let mut stdout = tokio::io::stdout();
+                            stdout
+                                .write_all(
+                                    format!("{domain}: crawled {cur_count} pages\n").as_bytes(),
+                                )
+                                .await?;
+                            stdout.flush().await?;
+                        }
+
+                        // TODO: Send page to indexer task.
+
+                        Ok(())
+                    });
+                }
+
+                let result = crawl_page_tasks
+                    .join_all()
+                    .await
+                    .into_iter()
+                    .collect::<anyhow::Result<_>>();
+                result
+            });
+
+            // Crawl, sending pages to page receiver, and unsubscribe when done.
+            website.crawl().await;
+            website.unsubscribe();
+
+            recv_handle.await?
+        });
+    }
+
+    // Wait for all domain crawlers to finish.
+    // TODO: Log any tasks that early-returned an error.
+    let _ = crawl_domain_tasks.join_all().await;
+
+    Ok(())
 }

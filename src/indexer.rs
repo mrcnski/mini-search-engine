@@ -4,7 +4,9 @@ use tantivy::{
     Index,
 };
 
-pub struct Indexer {
+use crate::consts;
+
+struct Indexer {
     index: Index,
     schema: Schema,
 }
@@ -41,4 +43,11 @@ impl Indexer {
         index_writer.commit()?;
         Ok(())
     }
+}
+
+// TODO: Log any errors in indexing, try to restart indexer.
+pub async fn start_background_indexer() -> anyhow::Result<()> {
+    let _indexer = Indexer::new(consts::SEARCH_INDEX_DIR).await?;
+
+    Ok(())
 }
