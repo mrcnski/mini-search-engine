@@ -5,9 +5,11 @@ use std::{
     time::Duration,
 };
 use tantivy::{
+    collector::TopDocs,
     doc,
+    query::QueryParser,
     schema::{Schema, STORED, TEXT},
-    Index, IndexWriter,
+    Document, Index, IndexWriter, TantivyDocument,
 };
 use tokio::sync::mpsc;
 
@@ -95,6 +97,54 @@ impl Indexer {
 
         Ok(())
     }
+
+    pub fn search(&self, query_str: &str, num_docs: usize) -> anyhow::Result<Vec<SearchResult>> {
+        // Open a searcher.
+        let reader = self.index.reader()?;
+        let searcher = reader.searcher();
+
+        // Get fields.
+        let schema = &self.schema;
+        let title_field = schema.get_field("title").unwrap();
+        let body_field = schema.get_field("body").unwrap();
+        let description_field = schema.get_field("description").unwrap();
+
+        // Create a query parser. Weight some fields for hopefully more relevant results.
+        let mut query_parser = QueryParser::for_index(
+            &self.index,
+            vec![title_field, body_field, description_field],
+        );
+        query_parser.set_field_boost(title_field, 2.0);
+        query_parser.set_field_boost(body_field, 1.0);
+        query_parser.set_field_boost(description_field, 0.5);
+
+        // Parse the query.
+        let query = query_parser.parse_query(query_str)?;
+
+        // Collect top results.
+        let top_docs = searcher.search(&query, &TopDocs::with_limit(num_docs))?;
+
+        // Display results.
+        for (score, doc_address) in top_docs {
+            let retrieved_doc: TantivyDocument = searcher.doc(doc_address)?;
+            println!("Score: {}", score);
+            println!("Document: {:?}", retrieved_doc.to_json(&schema));
+
+            let explanation = query.explain(&searcher, doc_address)?;
+            println!("Explanation: {}", explanation.to_pretty_json());
+        }
+
+        // TODO
+        Ok(vec![])
+    }
+}
+
+/// The result of a web search.
+pub struct SearchResult {
+    pub title: String,
+    pub url: String,
+    /// A relevant snippet from the page.
+    pub snippet: String,
 }
 
 pub async fn start() -> anyhow::Result<(Arc<Indexer>, mpsc::Sender<Page>)> {

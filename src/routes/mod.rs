@@ -1,23 +1,47 @@
-use axum::{extract::Query, response::Html};
-use std::collections::HashMap;
+use axum::{extract::Query, response::Html, Extension};
+use std::{collections::HashMap, sync::Arc};
 
-use crate::consts;
+use crate::{
+    consts,
+    indexer::{Indexer, SearchResult},
+};
 
-pub async fn index_handler(Query(params): Query<HashMap<String, String>>) -> Html<String> {
-    let params_html = if params.is_empty() {
+pub async fn index_handler(
+    Query(params): Query<HashMap<String, String>>,
+    Extension(index): Extension<Arc<Indexer>>,
+) -> Html<String> {
+    let query = params
+        .iter()
+        .filter_map(|(k, v)| {
+            if k == "q" {
+                Some(format!("<li>{v}</li>"))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("");
+
+    // Search index to get the results.
+    let results_html = if query.is_empty() {
         String::new()
     } else {
-        let results = params
-            .iter()
-            .filter_map(|(k, v)| {
-                if k == "q" {
-                    Some(format!("<li>{v}</li>"))
-                } else {
-                    None
-                }
+        let results: String = index
+            .search(&query, consts::RESULTS_PER_QUERY)
+            .map(|results| {
+                results
+                    .into_iter()
+                    .map(
+                        |SearchResult {
+                             title,
+                             url,
+                             snippet,
+                         }| format!("<div>{url}</div>"),
+                    )
+                    .collect::<Vec<_>>()
+                    .join("")
             })
-            .collect::<Vec<_>>()
-            .join("");
+            .unwrap_or_else(|e| format!("ERROR: could not get search results: {e}"));
 
         format!(
             "<div class='results'>
@@ -51,7 +75,7 @@ pub async fn index_handler(Query(params): Query<HashMap<String, String>>) -> Htm
         <button id="searchButton" onclick="search()">Search</button>
     </div>
 
-    {params_html}
+    {results_html}
 
     <script defer>
         function search() {{
