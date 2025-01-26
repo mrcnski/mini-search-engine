@@ -14,7 +14,7 @@ pub async fn index_handler(
         .iter()
         .filter_map(|(k, v)| {
             if k == "q" {
-                Some(format!("<li>{v}</li>"))
+                Some(v.clone())
             } else {
                 None
             }
@@ -36,12 +36,16 @@ pub async fn index_handler(
                              title,
                              url,
                              snippet,
-                         }| format!("<div>{url}</div>"),
+                        }| {
+                            let snippet = snippet.to_html();
+                            format!("<div><h3>{url}</h3><p>{snippet}</p></div>")
+                        },
                     )
                     .collect::<Vec<_>>()
                     .join("")
             })
-            .unwrap_or_else(|e| format!("ERROR: could not get search results: {e}"));
+            // TODO: log, don't show full error to user
+            .unwrap_or_else(|e| format!("ERROR: Could not get search results for '{query}': {e}"));
 
         format!(
             "<div class='results'>

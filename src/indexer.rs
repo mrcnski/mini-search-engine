@@ -1,3 +1,4 @@
+use anyhow::Context;
 use scraper::{Html, Selector};
 use spider::page::Page;
 use std::{
@@ -8,8 +9,8 @@ use tantivy::{
     collector::TopDocs,
     doc,
     query::QueryParser,
-    schema::{Schema, STORED, TEXT},
-    Document, Index, IndexWriter, TantivyDocument,
+    schema::{Schema, Value, STORED, TEXT},
+    Document, Index, IndexWriter, Snippet, SnippetGenerator, TantivyDocument,
 };
 use tokio::sync::mpsc;
 
@@ -100,14 +101,15 @@ impl Indexer {
 
     pub fn search(&self, query_str: &str, num_docs: usize) -> anyhow::Result<Vec<SearchResult>> {
         // Open a searcher.
-        let reader = self.index.reader()?;
+        let reader = self.index.reader().context("Could not open reader")?;
         let searcher = reader.searcher();
 
         // Get fields.
         let schema = &self.schema;
         let title_field = schema.get_field("title").unwrap();
-        let body_field = schema.get_field("body").unwrap();
         let description_field = schema.get_field("description").unwrap();
+        let body_field = schema.get_field("body").unwrap();
+        let url_field = self.schema.get_field("url").unwrap();
 
         // Create a query parser. Weight some fields for hopefully more relevant results.
         let mut query_parser = QueryParser::for_index(
@@ -119,23 +121,56 @@ impl Indexer {
         query_parser.set_field_boost(description_field, 0.5);
 
         // Parse the query.
-        let query = query_parser.parse_query(query_str)?;
+        let query = query_parser
+            .parse_query(query_str)
+            .context("Could not parse query")?;
 
         // Collect top results.
-        let top_docs = searcher.search(&query, &TopDocs::with_limit(num_docs))?;
+        let top_docs = searcher
+            .search(&query, &TopDocs::with_limit(num_docs))
+            .context("Could not execute search")?;
+
+        // Create a SnippetGenerator
+        let mut snippet_generator = SnippetGenerator::create(&searcher, &*query, body_field)?;
 
         // Display results.
-        for (score, doc_address) in top_docs {
-            let retrieved_doc: TantivyDocument = searcher.doc(doc_address)?;
-            println!("Score: {}", score);
-            println!("Document: {:?}", retrieved_doc.to_json(&schema));
+        let results: anyhow::Result<_> = top_docs
+            .into_iter()
+            .map(|(score, doc_address)| {
+                let retrieved_doc: TantivyDocument =
+                    searcher.doc(doc_address).context("Could not get doc")?;
 
-            let explanation = query.explain(&searcher, doc_address)?;
-            println!("Explanation: {}", explanation.to_pretty_json());
-        }
+                let title = retrieved_doc
+                    .get_first(title_field)
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_string();
+                let url = retrieved_doc
+                    .get_first(url_field)
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_string();
+                let body_text = retrieved_doc
+                    .get_first(body_field)
+                    .unwrap()
+                    .as_str()
+                    .unwrap();
+                let snippet = snippet_generator.snippet(body_text);
 
-        // TODO
-        Ok(vec![])
+                // let explanation = query.explain(&searcher, doc_address)?;
+                // println!("Explanation: {}", explanation.to_pretty_json());
+
+                Ok(SearchResult {
+                    title,
+                    url,
+                    snippet,
+                })
+            })
+            .collect();
+
+        Ok(results?)
     }
 }
 
@@ -144,7 +179,7 @@ pub struct SearchResult {
     pub title: String,
     pub url: String,
     /// A relevant snippet from the page.
-    pub snippet: String,
+    pub snippet: Snippet,
 }
 
 pub async fn start() -> anyhow::Result<(Arc<Indexer>, mpsc::Sender<Page>)> {
