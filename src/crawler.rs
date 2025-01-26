@@ -47,7 +47,7 @@ pub async fn initial_crawl() -> anyhow::Result<()> {
     // Have separate tasks for each domain. We'll process multiple domains in parallel, and
     // hopefully not get blocked or rate-limited from any target domain. This also follows the
     // `spider` examples (except they didn't use a JoinSet).
-    let mut crawl_domain_tasks: JoinSet<anyhow::Result<()>> = JoinSet::new();
+    let mut crawl_domain_tasks: JoinSet<()> = JoinSet::new();
 
     for domain in domains {
         println!("Crawling domain: {}", domain);
@@ -63,7 +63,7 @@ pub async fn initial_crawl() -> anyhow::Result<()> {
             let recv_handle = tokio::task::spawn(async move {
                 let page_count = Arc::new(AtomicU32::new(0));
 
-                let mut crawl_page_tasks: JoinSet<anyhow::Result<()>> = JoinSet::new();
+                let mut crawl_page_tasks: JoinSet<()> = JoinSet::new();
 
                 while let Ok(page) = rx2.recv().await {
                     let domain = domain.clone();
@@ -71,6 +71,7 @@ pub async fn initial_crawl() -> anyhow::Result<()> {
 
                     // We use async and potentially-blocking methods, so spawn a task to avoid
                     // losing messages. See [`spider::website::Website::subscribe`].
+                    // TODO: should probably limit the number of tasks spawned here.
                     crawl_page_tasks.spawn(async move {
                         let url = page.get_url();
                         let html = page.get_html();
@@ -80,40 +81,47 @@ pub async fn initial_crawl() -> anyhow::Result<()> {
                             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| Some(x + 1))
                             .unwrap_or_else(|e| e);
                         if cur_count % consts::LOG_INTERVAL_PER_DOMAIN == 0 {
-                            let mut stdout = tokio::io::stdout();
-                            stdout
-                                .write_all(
-                                    format!("{domain}: crawled {cur_count} pages\n").as_bytes(),
-                                )
-                                .await?;
-                            stdout.flush().await?;
+                            log(&format!("{domain}: crawled {cur_count} pages...\n")).await;
                         }
 
                         // TODO: Send page to indexer task.
-
-                        Ok(())
                     });
+
+                    // Limit the number of tasks.
+                    while crawl_page_tasks.len() > 16 {
+                        if let Some(Err(e)) = crawl_page_tasks.join_next().await {
+                            log(&format!("ERROR: could not crawl: {e}")).await;
+                        }
+                    }
                 }
 
-                let result = crawl_page_tasks
-                    .join_all()
-                    .await
-                    .into_iter()
-                    .collect::<anyhow::Result<_>>();
-                result
+                // Log any remaining tasks that early-returned an error.
+                while let Some(result) = crawl_page_tasks.join_next().await {
+                    if let Err(e) = result {
+                        log(&format!("ERROR: could not crawl: {e}")).await;
+                    }
+                }
             });
 
             // Crawl, sending pages to page receiver, and unsubscribe when done.
             website.crawl().await;
             website.unsubscribe();
 
-            recv_handle.await?
+            if let Err(e) = recv_handle.await {
+                log(&format!("ERROR: could not crawl: {e}")).await;
+            }
+            log(&format!("{domain}: finished crawling!\n")).await;
         });
     }
 
     // Wait for all domain crawlers to finish.
-    // TODO: Log any tasks that early-returned an error.
-    let _ = crawl_domain_tasks.join_all().await;
+    crawl_domain_tasks.join_all().await;
 
     Ok(())
+}
+
+async fn log(message: &str) {
+    let mut stdout = tokio::io::stdout();
+    stdout.write_all(message.as_bytes()).await.unwrap();
+    stdout.flush().await.unwrap();
 }

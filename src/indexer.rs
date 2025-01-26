@@ -46,7 +46,7 @@ impl Indexer {
 }
 
 // TODO: Log any errors in indexing, try to restart indexer.
-pub async fn start_background_indexer() -> anyhow::Result<()> {
+pub async fn start() -> anyhow::Result<()> {
     let _indexer = Indexer::new(consts::SEARCH_INDEX_DIR).await?;
 
     Ok(())

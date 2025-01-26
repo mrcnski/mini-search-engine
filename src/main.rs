@@ -9,7 +9,7 @@ mod routes;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Start the background indexing task. Periodically commits.
-    indexer::start_background_indexer()
+    indexer::start()
         .await
         .context("Failed to start background indexer")?;
 
