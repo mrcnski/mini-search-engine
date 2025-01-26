@@ -1,13 +1,20 @@
+use spider::page::Page;
+use std::{
+    sync::{Arc, RwLock},
+    time::Duration,
+};
 use tantivy::{
     doc,
     schema::{Schema, STORED, TEXT},
-    Index,
+    Index, IndexWriter,
 };
+use tokio::{sync::mpsc, task::JoinSet};
 
-use crate::consts;
+use crate::{consts, utils::log};
 
 struct Indexer {
     index: Index,
+    index_writer: Arc<RwLock<IndexWriter>>,
     schema: Schema,
 }
 
@@ -26,28 +33,65 @@ impl Indexer {
         let schema = schema_builder.build();
 
         let index = Index::create_in_dir(index_path, schema.clone())?;
+        let index_writer: Arc<RwLock<IndexWriter>> =
+            Arc::new(RwLock::new(index.writer(50_000_000)?));
 
-        Ok(Indexer { index, schema })
+        Ok(Indexer {
+            index,
+            index_writer,
+            schema,
+        })
     }
 
     pub fn add_page(&self, url: &str, content: &str) -> anyhow::Result<()> {
-        let mut index_writer = self.index.writer(50_000_000)?;
         let url_field = self.schema.get_field("url").unwrap();
         let content_field = self.schema.get_field("content").unwrap();
 
-        index_writer.add_document(doc!(
+        let index_writer_wlock = self.index_writer.write().unwrap();
+        index_writer_wlock.add_document(doc!(
             url_field => url,
             content_field => content,
         ))?;
 
-        index_writer.commit()?;
         Ok(())
     }
 }
 
-// TODO: Log any errors in indexing, try to restart indexer.
-pub async fn start() -> anyhow::Result<()> {
-    let _indexer = Indexer::new(consts::SEARCH_INDEX_DIR).await?;
+pub async fn start() -> anyhow::Result<mpsc::Sender<Page>> {
+    let indexer = Indexer::new(consts::SEARCH_INDEX_DIR).await?;
+    let index_writer = indexer.index_writer.clone();
 
-    Ok(())
+    let (tx, mut rx) = mpsc::channel(1000);
+
+    tokio::task::spawn(async move {
+        let mut indexer_tasks: JoinSet<()> = JoinSet::new();
+
+        while let Some(_page) = rx.recv().await {
+            indexer_tasks.spawn(async move {});
+
+            // Limit the number of tasks.
+            while indexer_tasks.len() > 100 {
+                if let Some(Err(e)) = indexer_tasks.join_next().await {
+                    log(&format!("WARNING: could not index: {e}")).await;
+                }
+            }
+        }
+    });
+
+    // Periodically commit.
+    std::thread::spawn(move || {
+        let index_writer = indexer.index_writer.clone();
+
+        loop {
+            std::thread::sleep(Duration::from_millis(500));
+
+            let mut index_writer_wlock = index_writer.write().unwrap();
+            // NOTE: This can block.
+            if let Err(e) = index_writer_wlock.commit() {
+                println!("ERROR: could not commit index: {e}");
+            }
+        }
+    });
+
+    Ok(tx)
 }

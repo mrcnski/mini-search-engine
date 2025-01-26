@@ -5,16 +5,17 @@ mod consts;
 mod crawler;
 mod indexer;
 mod routes;
+mod utils;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Start the background indexing task. Periodically commits.
-    indexer::start()
+    let indexer_tx = indexer::start()
         .await
         .context("Failed to start background indexer")?;
 
     // TODO: time this.
-    crawler::initial_crawl().await.context("Failed to crawl")?;
+    crawler::initial_crawl(indexer_tx).await.context("Failed to crawl")?;
 
     println!("Server starting on http://localhost:{}", consts::PORT);
     run_server().await.context("Failed to run server")?;

@@ -2,6 +2,7 @@ use anyhow::{self, Context};
 use spider::{
     configuration::{WaitForIdleNetwork, WaitForSelector},
     features::chrome_common::RequestInterceptConfiguration,
+    page::Page,
     tokio,
     website::Website,
 };
@@ -9,9 +10,9 @@ use std::sync::{
     atomic::{AtomicU32, Ordering},
     Arc,
 };
-use tokio::{io::AsyncWriteExt, task::JoinSet, time::Duration};
+use tokio::{sync::mpsc, task::JoinSet, time::Duration};
 
-use crate::consts;
+use crate::{consts, utils::log};
 
 fn init(url: &str, page_limit: u32) -> anyhow::Result<Website> {
     let mut interception = RequestInterceptConfiguration::new(true);
@@ -38,7 +39,7 @@ fn init(url: &str, page_limit: u32) -> anyhow::Result<Website> {
         .build()?)
 }
 
-pub async fn initial_crawl() -> anyhow::Result<()> {
+pub async fn initial_crawl(indexer_tx: mpsc::Sender<Page>) -> anyhow::Result<()> {
     // We assume one valid domain per line.
     let domains = tokio::fs::read_to_string(consts::DOMAINS_FILE).await?;
     // TODO: remove the `take`. Just want a small test set for now.
@@ -53,29 +54,29 @@ pub async fn initial_crawl() -> anyhow::Result<()> {
         println!("Crawling domain: {}", domain);
 
         let mut website = init(domain, consts::MAX_PAGES_PER_DOMAIN)?;
-        let mut rx2 = website
+        let mut crawl_rx = website
             .subscribe(16)
             .context("Failed to subscribe to website crawler")?;
+        let indexer_tx = Arc::new(indexer_tx.to_owned()); // Create owned value for the async task.
         let domain = Arc::new(domain.to_owned()); // Create owned value for the async task.
 
         crawl_domain_tasks.spawn(async move {
+            let domain2 = domain.clone();
+
             // Spawn task that receives pages from the crawler.
             let recv_handle = tokio::task::spawn(async move {
                 let page_count = Arc::new(AtomicU32::new(0));
 
                 let mut crawl_page_tasks: JoinSet<()> = JoinSet::new();
 
-                while let Ok(page) = rx2.recv().await {
-                    let domain = domain.clone();
+                while let Ok(page) = crawl_rx.recv().await {
                     let page_count = page_count.clone();
+                    let indexer_tx = indexer_tx.clone();
+                    let domain = domain.clone();
 
                     // We use async and potentially-blocking methods, so spawn a task to avoid
                     // losing messages. See [`spider::website::Website::subscribe`].
-                    // TODO: should probably limit the number of tasks spawned here.
                     crawl_page_tasks.spawn(async move {
-                        let url = page.get_url();
-                        let html = page.get_html();
-
                         // Provide some visual indication of crawl progress.
                         let cur_count = page_count
                             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| Some(x + 1))
@@ -84,21 +85,24 @@ pub async fn initial_crawl() -> anyhow::Result<()> {
                             log(&format!("{domain}: crawled {cur_count} pages...\n")).await;
                         }
 
-                        // TODO: Send page to indexer task.
+                        // Send page to indexer task.
+                        if let Err(e) = indexer_tx.send(page).await {
+                            log(&format!("ERROR: index receiver dropped: {e}")).await;
+                        }
                     });
 
-                    // Limit the number of tasks.
+                    // Limit the number of tasks per domain.
                     while crawl_page_tasks.len() > 16 {
                         if let Some(Err(e)) = crawl_page_tasks.join_next().await {
-                            log(&format!("ERROR: could not crawl: {e}")).await;
+                            log(&format!("WARNING: could not crawl: {e}")).await;
                         }
                     }
                 }
 
-                // Log any remaining tasks that early-returned an error.
+                // Log any remaining tasks that returned an error.
                 while let Some(result) = crawl_page_tasks.join_next().await {
                     if let Err(e) = result {
-                        log(&format!("ERROR: could not crawl: {e}")).await;
+                        log(&format!("WARNING: could not crawl: {e}")).await;
                     }
                 }
             });
@@ -108,9 +112,9 @@ pub async fn initial_crawl() -> anyhow::Result<()> {
             website.unsubscribe();
 
             if let Err(e) = recv_handle.await {
-                log(&format!("ERROR: could not crawl: {e}")).await;
+                log(&format!("WARNING: could not crawl: {e}")).await;
             }
-            log(&format!("{domain}: finished crawling!\n")).await;
+            log(&format!("{domain2}: finished crawling!\n")).await;
         });
     }
 
@@ -118,10 +122,4 @@ pub async fn initial_crawl() -> anyhow::Result<()> {
     crawl_domain_tasks.join_all().await;
 
     Ok(())
-}
-
-async fn log(message: &str) {
-    let mut stdout = tokio::io::stdout();
-    stdout.write_all(message.as_bytes()).await.unwrap();
-    stdout.flush().await.unwrap();
 }
