@@ -61,6 +61,8 @@ TODO
 
 ### Challenges Faced
 
+- I encountered some mild confusion around the usage of the `spider` crawler. Luckily I was able to [ask the developer and get a quick response](https://github.com/spider-rs/spider/issues/253) without diving into the source code.
+
 TODO
 
 ### Ranking Strategy
