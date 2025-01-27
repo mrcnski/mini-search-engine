@@ -10,34 +10,30 @@ use tantivy::{
     doc,
     query::QueryParser,
     schema::{Schema, Value, FAST, STORED, TEXT},
-    Index, IndexWriter, ReloadPolicy, Snippet, SnippetGenerator, TantivyDocument,
+    Index, IndexReader, IndexWriter, ReloadPolicy, Snippet, SnippetGenerator, TantivyDocument,
+    tokenizer,
 };
 use tokio::sync::mpsc;
 
 use crate::consts;
 
 pub struct Indexer {
+    #[allow(dead_code)]
     index: Index,
     index_writer: Arc<RwLock<IndexWriter>>,
     schema: Schema,
-    reader: Arc<RwLock<tantivy::IndexReader>>,
+    reader: Arc<RwLock<IndexReader>>,
     query_parser: Arc<RwLock<QueryParser>>,
 }
 
 impl Indexer {
     pub async fn new(index_path: &str) -> anyhow::Result<Self> {
         let schema = Self::create_schema();
-        let index = Self::create_index(schema.clone(), index_path).await?;
+        let index = Self::create_index(&schema, index_path).await?;
+        let reader = Self::create_reader(&index)?;
 
         let index_writer: Arc<RwLock<IndexWriter>> =
             Arc::new(RwLock::new(index.writer(50_000_000)?));
-
-        let reader = Arc::new(RwLock::new(
-            index
-                .reader_builder()
-                .reload_policy(ReloadPolicy::OnCommitWithDelay)
-                .try_into()?,
-        ));
 
         let title_field = schema.get_field("title").unwrap();
         let description_field = schema.get_field("description").unwrap();
@@ -47,7 +43,7 @@ impl Indexer {
             QueryParser::for_index(&index, vec![title_field, body_field, description_field]);
         query_parser.set_field_boost(title_field, 2.0);
         query_parser.set_field_boost(body_field, 1.0);
-        query_parser.set_field_boost(description_field, 0.5);
+        query_parser.set_field_boost(description_field, 1.5);
 
         let query_parser = Arc::new(RwLock::new(query_parser));
 
@@ -65,11 +61,11 @@ impl Indexer {
         schema_builder.add_text_field("title", TEXT | STORED | FAST);
         schema_builder.add_text_field("description", TEXT | STORED | FAST);
         schema_builder.add_text_field("body", TEXT | STORED);
-        schema_builder.add_text_field("url", STORED | FAST);
+        schema_builder.add_text_field("url", STORED);
         schema_builder.build()
     }
 
-    async fn create_index(schema: Schema, index_path: &str) -> anyhow::Result<Index> {
+    async fn create_index(schema: &Schema, index_path: &str) -> anyhow::Result<Index> {
         // Delete any existing index.
         // TODO: Remove this once we finalize the schema.
         let _ = tokio::fs::remove_dir_all(index_path).await?;
@@ -77,7 +73,36 @@ impl Indexer {
         // Create index directory if it doesn't exist
         tokio::fs::create_dir_all(index_path).await?;
 
-        Ok(Index::create_in_dir(index_path, schema.clone())?)
+        let mut index = Index::create_in_dir(index_path, schema.clone())?;
+
+        let ff_tokenizer_manager = tokenizer::TokenizerManager::default();
+        ff_tokenizer_manager.register(
+            "raw",
+            tokenizer::TextAnalyzer::builder(tokenizer::RawTokenizer::default())
+                .filter(tokenizer::RemoveLongFilter::limit(255))
+                .build(),
+        );
+        index.set_fast_field_tokenizers(ff_tokenizer_manager.clone());
+
+        Ok(index)
+    }
+
+    fn create_reader(index: &Index) -> anyhow::Result<Arc<RwLock<IndexReader>>> {
+        Ok(Arc::new(RwLock::new(
+            index
+                .reader_builder()
+                .reload_policy(ReloadPolicy::OnCommitWithDelay)
+                // .warmers(vec![Box::new(|searcher| {
+                //     searcher
+                //         .segment_readers()
+                //         .iter()
+                //         .for_each(|segment_reader| {
+                //             let _ = segment_reader.fast_fields().str("title");
+                //             let _ = segment_reader.fast_fields().str("description");
+                //         });
+                // })])
+                .try_into()?,
+        )))
     }
 
     pub fn add_page(&self, page: &Page) -> anyhow::Result<()> {

@@ -62,7 +62,22 @@ TODO
 
 ### Challenges Faced
 
-- I encountered some mild confusion around the usage of the `spider` crawler. Luckily I was able to [ask the developer and get a quick response](https://github.com/spider-rs/spider/issues/253) without diving into the source code.
+- I encountered some mild confusion around the usage of the `spider` crawler due
+  to unclear docs. Luckily I was able to [ask the developer and get a quick
+  response](https://github.com/spider-rs/spider/issues/253) without diving into
+  the source code.
+- Making the queries performant.
+  - Initially I was getting 50ms times for a small test index, which was
+    dangerously close to the maximum latency allowed. So I played around with
+    the `FAST` flag on tantivy schema fields. Setting it on the `title` and
+    `description` fields boosted the query performance by almost 2x!
+    Interestingly, setting it on the `body` field brought the performance back
+    down to original slow levels.
+  - I continued to see performance issues, so I played around with a number of
+    strategies. I enabled a token limit on fast fields and enabled Rust compiler
+    optimizations. The biggest impact seemed to come from replacing the system
+    allocator with `jemalloc`, resulting in another **huge** performance boost!
+    (On my Mac machine, at least.)
 
 TODO
 

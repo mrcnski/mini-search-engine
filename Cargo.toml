@@ -4,10 +4,22 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = "0.7"
-tokio = { version = "1.0", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
 anyhow = "1.0.95"
+axum = "0.7"
+jemallocator = "0.5"
 tantivy = "0.22.0"
-spider = "2.26.15"
 scraper = "0.22.0"
+serde = { version = "1.0", features = ["derive"] }
+spider = "2.26.15"
+tokio = { version = "1.0", features = ["full"] }
+
+[profile.release]
+allocator = "jemalloc"
+# TODO: Enable before finishing project?
+# opt-level = 3           # Use "3" for maximum speed
+# debug = false           # Disable debug information
+# lto = "fat"             # Enable Link Time Optimization (LTO)
+# codegen-units = 1       # Reduce codegen units for better optimization at the cost of compile time
+# panic = "abort"         # Avoid unwinding for smaller and faster code
+# incremental = false     # Disable incremental compilation
+# overflow-checks = false # Disable overflow checks for optimized arithmetic
