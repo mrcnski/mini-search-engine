@@ -78,6 +78,10 @@ TODO
     optimizations. The biggest impact seemed to come from replacing the system
     allocator with `jemalloc`, resulting in another **huge** performance boost!
     (On my Mac machine, at least.)
+  - I was still seeing fairly high latencies. After bugging them on Discord and
+    measuring the different stages of `search`, I eventually realized that
+    snippets were being generated from large `<script>` elements. I added
+    additional filtering for these elements before indexing the text of a page.
 
 TODO
 

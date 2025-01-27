@@ -171,8 +171,11 @@ impl Indexer {
                 }
                 // If the child is a text node, append its content
                 Node::Text(t) => {
-                    text.push_str(t.trim());
-                    text.push(' '); // Add a space between text nodes
+                    let t = t.trim();
+                    if !t.is_empty() {
+                        text.push_str(t);
+                        text.push(' '); // Add a space between text nodes
+                    }
                 }
                 _ => {}
             }
@@ -302,4 +305,58 @@ pub async fn start() -> anyhow::Result<(Arc<Indexer>, mpsc::Sender<Page>)> {
     });
 
     Ok((indexer, tx))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use scraper::Html;
+
+    #[test]
+    fn test_extract_text() {
+        // Test case 1: Simple text without script
+        let html = r#"<body>Hello world</body>"#;
+        let document = Html::parse_document(html);
+        let body = document
+            .select(&Selector::parse("body").unwrap())
+            .next()
+            .unwrap();
+        assert_eq!(Indexer::extract_text(body), "Hello world ");
+
+        // Test case 2: Text with script at root level
+        let html = r#"<body>Hello <script>alert('hidden');</script>world</body>"#;
+        let document = Html::parse_document(html);
+        let body = document
+            .select(&Selector::parse("body").unwrap())
+            .next()
+            .unwrap();
+        assert_eq!(Indexer::extract_text(body), "Hello world ");
+
+        // Test case 3: Text with nested script
+        let html =
+            r#"<body>Hello <div>nested <script>alert('hidden');</script>text</div> world</body>"#;
+        let document = Html::parse_document(html);
+        let body = document
+            .select(&Selector::parse("body").unwrap())
+            .next()
+            .unwrap();
+        assert_eq!(Indexer::extract_text(body), "Hello nested text world ");
+
+        // Test case 4: Multiple scripts and nested elements
+        let html = r#"<body>
+            <h1>Title</h1>
+            <script>var x = 1;</script>
+            <div>
+                Content
+                <p>Paragraph <script>console.log('hidden');</script> text</p>
+            </div>
+            <script>var y = 2;</script>
+        </body>"#;
+        let document = Html::parse_document(html);
+        let body = document
+            .select(&Selector::parse("body").unwrap())
+            .next()
+            .unwrap();
+        assert_eq!(Indexer::extract_text(body), "Title Content Paragraph text ");
+    }
 }
