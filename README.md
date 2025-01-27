@@ -5,7 +5,8 @@
 This is a mini search engine specifically designed for searching programming
 documentation using existing technologies.
 
-The priorities are **search relevance** and **latency**.
+The priorities are **search relevance** and **latency**. The maximum allowable
+search latency is 50ms.
 
 ### Crawling
 

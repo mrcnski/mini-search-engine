@@ -17,7 +17,6 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("Failed to start background indexer")?;
 
-    // TODO: time this.
     crawler::initial_crawl(indexer_tx).await.context("Failed to crawl")?;
 
     println!("Server starting on http://localhost:{}", consts::PORT);

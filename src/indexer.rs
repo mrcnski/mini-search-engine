@@ -10,7 +10,7 @@ use tantivy::{
     doc,
     query::QueryParser,
     schema::{Schema, Value, STORED, TEXT},
-    Document, Index, IndexWriter, Snippet, SnippetGenerator, TantivyDocument,
+    Index, IndexWriter, Snippet, SnippetGenerator, TantivyDocument,
 };
 use tokio::sync::mpsc;
 
@@ -131,12 +131,12 @@ impl Indexer {
             .context("Could not execute search")?;
 
         // Create a SnippetGenerator
-        let mut snippet_generator = SnippetGenerator::create(&searcher, &*query, body_field)?;
+        let snippet_generator = SnippetGenerator::create(&searcher, &*query, body_field)?;
 
         // Display results.
         let results: anyhow::Result<_> = top_docs
             .into_iter()
-            .map(|(score, doc_address)| {
+            .map(|(_score, doc_address)| {
                 let retrieved_doc: TantivyDocument =
                     searcher.doc(doc_address).context("Could not get doc")?;
 

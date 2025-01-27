@@ -6,9 +6,12 @@ use spider::{
     tokio,
     website::Website,
 };
-use std::sync::{
-    atomic::{AtomicU32, Ordering},
-    Arc,
+use std::{
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    },
+    time::Instant,
 };
 use tokio::{sync::mpsc, task::JoinSet, time::Duration};
 
@@ -40,10 +43,12 @@ fn init(url: &str, page_limit: u32) -> anyhow::Result<Website> {
 }
 
 pub async fn initial_crawl(indexer_tx: mpsc::Sender<Page>) -> anyhow::Result<()> {
+    let start = Instant::now();
+
     // We assume one valid domain per line.
     let domains = tokio::fs::read_to_string(consts::DOMAINS_FILE).await?;
     // TODO: remove the `take`. Just want a small test set for now.
-    let domains = domains.lines().take(2);
+    let domains = domains.lines().take(20);
 
     // Have separate tasks for each domain. We'll process multiple domains in parallel, and
     // hopefully not get blocked or rate-limited from any target domain. This also follows the
@@ -120,6 +125,10 @@ pub async fn initial_crawl(indexer_tx: mpsc::Sender<Page>) -> anyhow::Result<()>
 
     // Wait for all domain crawlers to finish.
     crawl_domain_tasks.join_all().await;
+
+    let duration = start.elapsed();
+    println!();
+    println!("Finished crawling in {:?}", duration);
 
     Ok(())
 }

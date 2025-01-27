@@ -1,5 +1,5 @@
 use axum::{extract::Query, response::Html, Extension};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use crate::{
     consts,
@@ -12,13 +12,7 @@ pub async fn index_handler(
 ) -> Html<String> {
     let query = params
         .iter()
-        .filter_map(|(k, v)| {
-            if k == "q" {
-                Some(v.clone())
-            } else {
-                None
-            }
-        })
+        .filter_map(|(k, v)| if k == "q" { Some(v.clone()) } else { None })
         .collect::<Vec<_>>()
         .join("");
 
@@ -26,8 +20,12 @@ pub async fn index_handler(
     let results_html = if query.is_empty() {
         String::new()
     } else {
-        let results: String = index
-            .search(&query, consts::RESULTS_PER_QUERY)
+        let start = Instant::now();
+        let search_result = index.search(&query, consts::RESULTS_PER_QUERY);
+        let duration = start.elapsed();
+
+        let results: String = search_result
+            .as_ref()
             .map(|results| {
                 results
                     .into_iter()
@@ -36,9 +34,16 @@ pub async fn index_handler(
                              title,
                              url,
                              snippet,
-                        }| {
+                         }| {
                             let snippet = snippet.to_html();
-                            format!("<div><h3>{url}</h3><p>{snippet}</p></div>")
+                            format!(
+                                "<div>
+                                    <h3>
+                                        <a href={url}>{title}</a>
+                                    </h3>
+                                    <p>{snippet}</p>
+                                </div>\n"
+                            )
                         },
                     )
                     .collect::<Vec<_>>()
@@ -46,14 +51,16 @@ pub async fn index_handler(
             })
             // TODO: log, don't show full error to user
             .unwrap_or_else(|e| format!("ERROR: Could not get search results for '{query}': {e}"));
+        let num_results = search_result.unwrap_or(vec![]).len();
 
         format!(
             "<div class='results'>
-                <h3>Search Results:</h3>
+                <h2>Search Results:</h2>
+                <i>{num_results} results in {duration:?}</i>
                 <ul>
                     {results}
                 </ul>
-            </div>"
+            </div>\n"
         )
     };
     let title = consts::NAME;
