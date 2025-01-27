@@ -1,112 +1,62 @@
 use axum::{extract::Query, response::Html, Extension};
 use std::{collections::HashMap, sync::Arc, time::Instant};
+use tera::{Context, Tera};
 
-use crate::{
-    consts,
-    indexer::{Indexer, SearchResult},
-};
+use crate::{consts, indexer::Indexer};
+
+lazy_static::lazy_static! {
+    static ref TEMPLATES: Tera = {
+        let mut tera = match Tera::new("templates/**/*") {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("Parsing error(s): {}", e);
+                ::std::process::exit(1);
+            }
+        };
+        tera.autoescape_on(vec![]); // Disable autoescaping
+        tera
+    };
+}
 
 pub async fn index_handler(
     Query(params): Query<HashMap<String, String>>,
     Extension(index): Extension<Arc<Indexer>>,
 ) -> Html<String> {
+    let mut context = Context::new();
+    context.insert("title", &consts::NAME);
+
     let query = params
         .iter()
         .filter_map(|(k, v)| if k == "q" { Some(v.clone()) } else { None })
         .collect::<Vec<_>>()
         .join("");
 
-    // Search index to get the results.
-    let results_html = if query.is_empty() {
-        String::new()
-    } else {
+    if !query.is_empty() {
+        context.insert("query", &query);
+
         let start = Instant::now();
         let search_result = index.search(&query, consts::RESULTS_PER_QUERY);
         let duration = start.elapsed();
 
-        let results: String = search_result
-            .as_ref()
-            .map(|results| {
-                results
-                    .into_iter()
-                    .map(
-                        |SearchResult {
-                             title,
-                             url,
-                             snippet,
-                         }| {
-                            let snippet = snippet.to_html();
-                            format!(
-                                "<div>
-                                    <h3>
-                                        <a href={url}>{title}</a>
-                                    </h3>
-                                    <p>{snippet}</p>
-                                </div>\n"
-                            )
-                        },
-                    )
-                    .collect::<Vec<_>>()
-                    .join("")
-            })
-            // TODO: log, don't show full error to user
-            .unwrap_or_else(|e| format!("ERROR: Could not get search results for '{query}': {e}"));
-        let num_results = search_result.unwrap_or(vec![]).len();
+        match search_result {
+            Ok(results) => {
+                context.insert("results", &results);
+                context.insert("num_results", &results.len());
+                context.insert("duration", &format!("{duration:?}"));
+            }
+            Err(e) => {
+                eprintln!("ERROR: Search error for '{query}': {e}");
+                context.insert("error", &format!("An error occurred while searching"));
+            }
+        }
+    }
 
-        format!(
-            "<div class='results'>
-                <h2>Search Results:</h2>
-                <i>{num_results} results in {duration:?}</i>
-                <ul>
-                    {results}
-                </ul>
-            </div>\n"
-        )
-    };
-    let title = consts::NAME;
-
-    Html(format!(
-        r##"
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Mini Search Engine</title>
-    <style>
-        body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        .input-form {{ margin-bottom: 20px; }}
-        .results {{ background: #f0f0f0; padding: 20px; border-radius: 5px; }}
-    </style>
-</head>
-
-<body>
-    <h1>{title}</h1>
-
-    <div class="input-form">
-        <input type="text" id="searchInput" autofocus>
-        <button id="searchButton" onclick="search()">Search</button>
-    </div>
-
-    {results_html}
-
-    <script defer>
-        function search() {{
-            const input = document.getElementById('searchInput').value;
-            if (!input.trim()) return;
-
-            const currentUrl = new URL(window.location.href);
-            currentUrl.searchParams.set("q", input);
-            window.location.href = currentUrl.toString();
-        }}
-
-        // Make sure this code gets executed after the DOM is loaded.
-        document.querySelector("#searchInput").addEventListener("keyup", event => {{
-            if (event.key !== "Enter") return;
-            document.querySelector("#searchButton").click();
-            event.preventDefault();
-        }});
-    </script>
-</body>
-</html>
-"##
-    ))
+    Html(
+        TEMPLATES
+            .render("index.html", &context)
+            .unwrap_or_else(|e| {
+                eprintln!("Template error: {e}");
+                "Template error".to_string()
+            }),
+    )
 }

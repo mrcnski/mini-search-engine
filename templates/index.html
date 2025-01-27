@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mini Search Engine</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .input-form { margin-bottom: 20px; }
+        .results { background: #f0f0f0; padding: 20px; border-radius: 5px; }
+    </style>
+</head>
+
+<body>
+    <h1>{{ title }}</h1>
+
+    <div class="input-form">
+        <input type="text" id="searchInput" autofocus>
+        <button id="searchButton" onclick="search()">Search</button>
+    </div>
+
+    {% if query %}
+        <div class='results'>
+            <h2>Search Results:</h2>
+            <i>{{ num_results }} results in {{ duration }}</i>
+            <ul>
+                {% for result in results %}
+                    <div>
+                        <h3>
+                            <a href="{{ result.url }}">{{ result.title }}</a>
+                        </h3>
+                        <p>{{ result.snippet | safe }}</p>
+                    </div>
+                {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+
+    <script defer>
+        function search() {
+            const input = document.getElementById('searchInput').value;
+            if (!input.trim()) return;
+
+            const currentUrl = new URL(window.location.href);
+            currentUrl.searchParams.set("q", input);
+            window.location.href = currentUrl.toString();
+        }
+
+        document.querySelector("#searchInput").addEventListener("keyup", event => {
+            if (event.key !== "Enter") return;
+            document.querySelector("#searchButton").click();
+            event.preventDefault();
+        });
+    </script>
+</body>
+</html>

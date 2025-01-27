@@ -1,5 +1,6 @@
 use anyhow::Context;
 use scraper::{Html, Selector};
+use serde::Serialize;
 use spider::page::Page;
 use std::{
     sync::{Arc, RwLock},
@@ -10,8 +11,7 @@ use tantivy::{
     doc,
     query::QueryParser,
     schema::{Schema, Value, FAST, STORED, TEXT},
-    Index, IndexReader, IndexWriter, ReloadPolicy, Snippet, SnippetGenerator, TantivyDocument,
-    tokenizer,
+    tokenizer, Index, IndexReader, IndexWriter, ReloadPolicy, SnippetGenerator, TantivyDocument,
 };
 use tokio::sync::mpsc;
 
@@ -201,7 +201,7 @@ impl Indexer {
                 Ok(SearchResult {
                     title,
                     url,
-                    snippet,
+                    snippet: snippet.to_html(),
                 })
             })
             .collect();
@@ -211,11 +211,12 @@ impl Indexer {
 }
 
 /// The result of a web search.
+#[derive(Serialize)]
 pub struct SearchResult {
     pub title: String,
     pub url: String,
     /// A relevant snippet from the page.
-    pub snippet: Snippet,
+    pub snippet: String,
 }
 
 pub async fn start() -> anyhow::Result<(Arc<Indexer>, mpsc::Sender<Page>)> {
@@ -229,7 +230,7 @@ pub async fn start() -> anyhow::Result<(Arc<Indexer>, mpsc::Sender<Page>)> {
         while let Some(page) = rx.recv().await {
             if let Err(e) = add_page_indexer.add_page(&page) {
                 let url = page.get_url();
-                println!("ERROR: could not index page '{url}': {e}");
+                eprintln!("ERROR: could not index page '{url}': {e}");
             }
         }
     });
@@ -241,7 +242,7 @@ pub async fn start() -> anyhow::Result<(Arc<Indexer>, mpsc::Sender<Page>)> {
 
         let mut index_writer_wlock = commit_indexer.index_writer.write().unwrap();
         if let Err(e) = index_writer_wlock.commit() {
-            println!("ERROR: could not commit index: {e}");
+            eprintln!("ERROR: could not commit index: {e}");
         }
     });
 
