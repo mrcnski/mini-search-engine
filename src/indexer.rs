@@ -1,9 +1,12 @@
 use anyhow::Context;
-use scraper::{Html, Selector};
+use scraper::{ElementRef, Html, Node, Selector};
 use serde::Serialize;
 use spider::page::Page;
 use std::{
-    sync::{Arc, RwLock},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, RwLock,
+    },
     time::Duration,
 };
 use tantivy::{
@@ -24,6 +27,7 @@ pub struct Indexer {
     schema: Schema,
     reader: Arc<RwLock<IndexReader>>,
     query_parser: Arc<RwLock<QueryParser>>,
+    is_dirty: AtomicBool,
 }
 
 impl Indexer {
@@ -53,6 +57,7 @@ impl Indexer {
             schema,
             reader,
             query_parser,
+            is_dirty: AtomicBool::new(false),
         })
     }
 
@@ -125,11 +130,11 @@ impl Indexer {
             .next()
             .map(|el| el.value().attr("content").unwrap_or_default())
             .unwrap_or_default();
-        let body = document
-            .select(&body_selector)
-            .next()
-            .map(|el| el.text().collect::<Vec<_>>().join(" "))
-            .unwrap_or_default();
+        let body = if let Some(body) = document.select(&body_selector).next() {
+            Self::extract_text(body)
+        } else {
+            String::new()
+        };
 
         let title_field = self.schema.get_field("title").unwrap();
         let description_field = self.schema.get_field("description").unwrap();
@@ -144,7 +149,36 @@ impl Indexer {
             url_field => url,
         ))?;
 
+        self.is_dirty.store(true, Ordering::Relaxed);
+
         Ok(())
+    }
+
+    fn extract_text(element: ElementRef) -> String {
+        const IGNORED_ELEMENTS: &[&str] = &["script"];
+
+        let mut text = String::new();
+
+        for child in element.children() {
+            match child.value() {
+                // If the child is an element, check if it's a <script>
+                Node::Element(e) => {
+                    if !IGNORED_ELEMENTS.contains(&e.name()) {
+                        if let Some(el_ref) = ElementRef::wrap(child) {
+                            text.push_str(&Self::extract_text(el_ref));
+                        }
+                    }
+                }
+                // If the child is a text node, append its content
+                Node::Text(t) => {
+                    text.push_str(t.trim());
+                    text.push(' '); // Add a space between text nodes
+                }
+                _ => {}
+            }
+        }
+
+        text
     }
 
     pub fn search(&self, query_str: &str, num_docs: usize) -> anyhow::Result<Vec<SearchResult>> {
@@ -162,20 +196,30 @@ impl Indexer {
             .context("Could not parse query")?;
 
         // Collect top results.
+        let start = std::time::Instant::now();
         let top_docs = searcher
             .search(&query, &TopDocs::with_limit(num_docs))
             .context("Could not execute search")?;
+        let duration = start.elapsed();
+        println!("search: {duration:?}");
 
         // Create a SnippetGenerator
         let snippet_generator = SnippetGenerator::create(&searcher, &*query, body_field)?;
 
         // Display results.
-        let results: anyhow::Result<_> = top_docs
+        let start = std::time::Instant::now();
+        let results = top_docs
             .into_iter()
             .map(|(_score, doc_address)| {
-                let retrieved_doc: TantivyDocument =
-                    searcher.doc(doc_address).context("Could not get doc")?;
+                let start = std::time::Instant::now();
+                let retrieved_doc: TantivyDocument = searcher
+                    .doc(doc_address)
+                    .context("Could not get doc")
+                    .unwrap();
+                let duration = start.elapsed();
+                println!("get doc: {duration:?}");
 
+                let start = std::time::Instant::now();
                 let title = retrieved_doc
                     .get_first(title_field)
                     .unwrap()
@@ -188,25 +232,29 @@ impl Indexer {
                     .as_str()
                     .unwrap()
                     .to_string();
-                let body_text = retrieved_doc
-                    .get_first(body_field)
-                    .unwrap()
-                    .as_str()
-                    .unwrap();
-                let snippet = snippet_generator.snippet(body_text);
+                let duration = start.elapsed();
+                println!("get fields: {duration:?}");
+
+                let start = std::time::Instant::now();
+                let snippet = snippet_generator.snippet_from_doc(&retrieved_doc);
+                let snippet = snippet.to_html();
+                let duration = start.elapsed();
+                println!("snippet: {duration:?}");
 
                 // let explanation = query.explain(&searcher, doc_address)?;
                 // println!("Explanation: {}", explanation.to_pretty_json());
 
-                Ok(SearchResult {
+                SearchResult {
                     title,
                     url,
-                    snippet: snippet.to_html(),
-                })
+                    snippet,
+                }
             })
             .collect();
+        let duration = start.elapsed();
+        println!("collate results: {duration:?}");
 
-        Ok(results?)
+        Ok(results)
     }
 }
 
@@ -240,9 +288,16 @@ pub async fn start() -> anyhow::Result<(Arc<Indexer>, mpsc::Sender<Page>)> {
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_millis(500));
 
+        // Skip if there's nothing to commit.
+        if !commit_indexer.is_dirty.load(Ordering::Relaxed) {
+            continue;
+        }
+
         let mut index_writer_wlock = commit_indexer.index_writer.write().unwrap();
         if let Err(e) = index_writer_wlock.commit() {
             eprintln!("ERROR: could not commit index: {e}");
+        } else {
+            commit_indexer.is_dirty.store(false, Ordering::Relaxed);
         }
     });
 
