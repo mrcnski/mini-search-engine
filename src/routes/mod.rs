@@ -31,7 +31,7 @@ pub async fn stats_handler(Extension(index): Extension<Arc<Indexer>>) -> Html<St
 
     match index.get_domain_stats() {
         Ok(stats) => {
-            let total_pages: usize = stats.iter().map(|s| s.page_count).sum();
+            let total_pages: u64 = stats.iter().map(|s| s.page_count).sum();
             let total_size: u64 = stats
                 .iter()
                 .map(|s| {

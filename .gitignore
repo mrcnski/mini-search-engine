@@ -1,6 +1,7 @@
 .aider*
 .env
 search_index/
+stats.db/
 
 # Added by cargo
 

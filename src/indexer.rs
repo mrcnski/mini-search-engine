@@ -3,7 +3,6 @@ use scraper::{ElementRef, Html, Node, Selector};
 use serde::Serialize;
 use spider::page::Page;
 use std::{
-    collections::HashMap,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, RwLock,
@@ -28,6 +27,7 @@ pub struct Indexer {
     schema: Schema,
     reader: Arc<RwLock<IndexReader>>,
     query_parser: Arc<RwLock<QueryParser>>,
+    stats_db: sled::Db,
     is_dirty: AtomicBool,
 }
 
@@ -52,12 +52,15 @@ impl Indexer {
 
         let query_parser = Arc::new(RwLock::new(query_parser));
 
+        let stats_db = sled::open("stats.db")?;
+
         Ok(Indexer {
             index,
             index_writer,
             schema,
             reader,
             query_parser,
+            stats_db,
             is_dirty: AtomicBool::new(false),
         })
     }
@@ -116,7 +119,16 @@ impl Indexer {
     pub fn add_page(&self, SearchPage { page, domain }: &SearchPage) -> anyhow::Result<()> {
         let html = page.get_html();
         let url = page.get_url();
-        let size = html.len();
+        let size = u64::try_from(html.len())?;
+
+        // Update domain stats
+        let stats_key = format!("domain:{domain}");
+        let current_stats = self.stats_db.get(&stats_key)?.unwrap_or_default();
+        let mut stats: (u64, u64) = bincode::deserialize(&current_stats).unwrap_or((0, 0));
+        stats.0 += 1; // increment count
+        stats.1 += size; // add size
+        self.stats_db
+            .insert(stats_key, bincode::serialize(&stats)?)?;
 
         let document = Html::parse_document(&html);
 
@@ -154,7 +166,7 @@ impl Indexer {
             body_field => body,
             url_field => url,
             domain_field => domain.clone(),
-            size_field => u64::try_from(size)?,
+            size_field => size,
         ))?;
 
         self.is_dirty.store(true, Ordering::Relaxed);
@@ -266,49 +278,21 @@ impl Indexer {
     }
 
     pub fn get_domain_stats(&self) -> anyhow::Result<Vec<DomainStats>> {
-        let reader = self.reader.read().unwrap();
-        let searcher = reader.searcher();
+        let mut stats = Vec::new();
 
-        let domain_field = self.schema.get_field("domain").unwrap();
-        let size_field = self.schema.get_field("size").unwrap();
+        for item in self.stats_db.scan_prefix("domain:") {
+            let (key, value) = item?;
+            let domain = String::from_utf8(key.as_ref()[7..].to_vec())?;
+            let (page_count, total_size): (u64, u64) = bincode::deserialize(&value)?;
 
-        // Collect all documents
-        let docs = searcher.search(
-            &tantivy::query::AllQuery,
-            &tantivy::collector::TopDocs::with_limit(1_000_000),
-        )?;
-
-        // Group by domain
-        let mut domain_stats: HashMap<String, (usize, u64)> = HashMap::new();
-
-        for (_score, doc_address) in docs {
-            let retrieved_doc: TantivyDocument = searcher.doc(doc_address)?;
-
-            if let Some(domain) = retrieved_doc
-                .get_first(domain_field)
-                .and_then(|v| v.as_str())
-            {
-                let size = retrieved_doc
-                    .get_first(size_field)
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0);
-                let entry = domain_stats.entry(domain.to_string()).or_default();
-                entry.0 += 1; // increment count
-                entry.1 += size; // add size
-            }
-        }
-
-        // Convert to sorted vec
-        let mut stats: Vec<_> = domain_stats
-            .into_iter()
-            .map(|(domain, (page_count, total_size))| DomainStats {
+            stats.push(DomainStats {
                 domain,
                 page_count,
                 total_size: humansize::format_size(total_size, humansize::DECIMAL),
-            })
-            .collect();
+            });
+        }
 
-        stats.sort_by(|a, b| b.page_count.cmp(&a.page_count));
+        stats.sort_by(|a, b| a.domain.cmp(&b.domain));
         Ok(stats)
     }
 }
@@ -317,7 +301,7 @@ impl Indexer {
 #[derive(Serialize)]
 pub struct DomainStats {
     pub domain: String,
-    pub page_count: usize,
+    pub page_count: u64,
     pub total_size: String,
 }
 
