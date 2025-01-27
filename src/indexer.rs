@@ -9,7 +9,7 @@ use tantivy::{
     collector::TopDocs,
     doc,
     query::QueryParser,
-    schema::{Schema, Value, STORED, TEXT},
+    schema::{Schema, Value, FAST, STORED, TEXT},
     Index, IndexWriter, Snippet, SnippetGenerator, TantivyDocument,
 };
 use tokio::sync::mpsc;
@@ -39,10 +39,10 @@ impl Indexer {
 
     fn create_schema() -> Schema {
         let mut schema_builder = Schema::builder();
-        schema_builder.add_text_field("title", TEXT | STORED);
-        schema_builder.add_text_field("description", TEXT | STORED);
+        schema_builder.add_text_field("title", TEXT | STORED | FAST);
+        schema_builder.add_text_field("description", TEXT | STORED | FAST);
         schema_builder.add_text_field("body", TEXT | STORED);
-        schema_builder.add_text_field("url", STORED);
+        schema_builder.add_text_field("url", STORED | FAST);
         schema_builder.build()
     }
 
