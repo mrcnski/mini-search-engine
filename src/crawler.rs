@@ -2,7 +2,6 @@ use anyhow::{self, Context};
 use spider::{
     configuration::{WaitForIdleNetwork, WaitForSelector},
     features::chrome_common::RequestInterceptConfiguration,
-    page::Page,
     tokio,
     website::Website,
 };
@@ -15,7 +14,7 @@ use std::{
 };
 use tokio::{sync::mpsc, task::JoinSet, time::Duration};
 
-use crate::{consts, utils::log};
+use crate::{consts, indexer::SearchPage, utils::log};
 
 fn init(url: &str, page_limit: u32) -> anyhow::Result<Website> {
     let mut interception = RequestInterceptConfiguration::new(true);
@@ -28,7 +27,7 @@ fn init(url: &str, page_limit: u32) -> anyhow::Result<Website> {
             500,
         )))))
         .with_wait_for_idle_dom(Some(WaitForSelector::new(
-            Some(Duration::from_millis(100)),
+            Some(Duration::from_millis(1000)),
             "body".into(),
         )))
         .with_block_assets(true)
@@ -42,7 +41,7 @@ fn init(url: &str, page_limit: u32) -> anyhow::Result<Website> {
         .build()?)
 }
 
-pub async fn initial_crawl(indexer_tx: mpsc::Sender<Page>) -> anyhow::Result<()> {
+pub async fn initial_crawl(indexer_tx: mpsc::Sender<SearchPage>) -> anyhow::Result<()> {
     let start = Instant::now();
 
     // We assume one valid domain per line.
@@ -91,7 +90,13 @@ pub async fn initial_crawl(indexer_tx: mpsc::Sender<Page>) -> anyhow::Result<()>
                         }
 
                         // Send page to indexer task.
-                        if let Err(e) = indexer_tx.send(page).await {
+                        if let Err(e) = indexer_tx
+                            .send(SearchPage {
+                                page,
+                                domain: domain.as_ref().clone(),
+                            })
+                            .await
+                        {
                             log(&format!("ERROR: index receiver dropped: {e}")).await;
                         }
                     });

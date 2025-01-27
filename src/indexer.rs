@@ -3,6 +3,7 @@ use scraper::{ElementRef, Html, Node, Selector};
 use serde::Serialize;
 use spider::page::Page;
 use std::{
+    collections::HashMap,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, RwLock,
@@ -67,6 +68,8 @@ impl Indexer {
         schema_builder.add_text_field("description", TEXT | STORED | FAST);
         schema_builder.add_text_field("body", TEXT | STORED);
         schema_builder.add_text_field("url", STORED);
+        schema_builder.add_text_field("domain", STORED | FAST);
+        schema_builder.add_u64_field("size", STORED | FAST);
         schema_builder.build()
     }
 
@@ -110,9 +113,10 @@ impl Indexer {
         )))
     }
 
-    pub fn add_page(&self, page: &Page) -> anyhow::Result<()> {
+    pub fn add_page(&self, SearchPage { page, domain }: &SearchPage) -> anyhow::Result<()> {
         let html = page.get_html();
         let url = page.get_url();
+        let size = html.len();
 
         let document = Html::parse_document(&html);
 
@@ -140,6 +144,8 @@ impl Indexer {
         let description_field = self.schema.get_field("description").unwrap();
         let body_field = self.schema.get_field("body").unwrap();
         let url_field = self.schema.get_field("url").unwrap();
+        let domain_field = self.schema.get_field("domain").unwrap();
+        let size_field = self.schema.get_field("size").unwrap();
 
         let index_writer_wlock = self.index_writer.write().unwrap();
         index_writer_wlock.add_document(doc!(
@@ -147,6 +153,8 @@ impl Indexer {
             description_field => description,
             body_field => body,
             url_field => url,
+            domain_field => domain.clone(),
+            size_field => u64::try_from(size)?,
         ))?;
 
         self.is_dirty.store(true, Ordering::Relaxed);
@@ -215,10 +223,7 @@ impl Indexer {
             .into_iter()
             .map(|(_score, doc_address)| {
                 let start = std::time::Instant::now();
-                let retrieved_doc: TantivyDocument = searcher
-                    .doc(doc_address)
-                    .context("Could not get doc")
-                    .unwrap();
+                let retrieved_doc: TantivyDocument = searcher.doc(doc_address).unwrap();
                 let duration = start.elapsed();
                 println!("get doc: {duration:?}");
 
@@ -259,9 +264,63 @@ impl Indexer {
 
         Ok(results)
     }
+
+    pub fn get_domain_stats(&self) -> anyhow::Result<Vec<DomainStats>> {
+        let reader = self.reader.read().unwrap();
+        let searcher = reader.searcher();
+
+        let domain_field = self.schema.get_field("domain").unwrap();
+        let size_field = self.schema.get_field("size").unwrap();
+
+        // Collect all documents
+        let docs = searcher.search(
+            &tantivy::query::AllQuery,
+            &tantivy::collector::TopDocs::with_limit(1_000_000),
+        )?;
+
+        // Group by domain
+        let mut domain_stats: HashMap<String, (usize, u64)> = HashMap::new();
+
+        for (_score, doc_address) in docs {
+            let retrieved_doc: TantivyDocument = searcher.doc(doc_address)?;
+
+            if let Some(domain) = retrieved_doc
+                .get_first(domain_field)
+                .and_then(|v| v.as_str())
+            {
+                let size = retrieved_doc
+                    .get_first(size_field)
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let entry = domain_stats.entry(domain.to_string()).or_default();
+                entry.0 += 1; // increment count
+                entry.1 += size; // add size
+            }
+        }
+
+        // Convert to sorted vec
+        let mut stats: Vec<_> = domain_stats
+            .into_iter()
+            .map(|(domain, (page_count, total_size))| DomainStats {
+                domain,
+                page_count,
+                total_size: humansize::format_size(total_size, humansize::DECIMAL),
+            })
+            .collect();
+
+        stats.sort_by(|a, b| b.page_count.cmp(&a.page_count));
+        Ok(stats)
+    }
 }
 
 /// The result of a web search.
+#[derive(Serialize)]
+pub struct DomainStats {
+    pub domain: String,
+    pub page_count: usize,
+    pub total_size: String,
+}
+
 #[derive(Serialize)]
 pub struct SearchResult {
     pub title: String,
@@ -270,7 +329,12 @@ pub struct SearchResult {
     pub snippet: String,
 }
 
-pub async fn start() -> anyhow::Result<(Arc<Indexer>, mpsc::Sender<Page>)> {
+pub struct SearchPage {
+    pub page: Page,
+    pub domain: String,
+}
+
+pub async fn start() -> anyhow::Result<(Arc<Indexer>, mpsc::Sender<SearchPage>)> {
     let indexer = Arc::new(Indexer::new(consts::SEARCH_INDEX_DIR).await?);
     let add_page_indexer = indexer.clone();
     let commit_indexer = indexer.clone();
@@ -280,7 +344,7 @@ pub async fn start() -> anyhow::Result<(Arc<Indexer>, mpsc::Sender<Page>)> {
     tokio::task::spawn(async move {
         while let Some(page) = rx.recv().await {
             if let Err(e) = add_page_indexer.add_page(&page) {
-                let url = page.get_url();
+                let url = page.page.get_url();
                 eprintln!("ERROR: could not index page '{url}': {e}");
             }
         }

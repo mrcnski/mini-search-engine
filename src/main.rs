@@ -1,5 +1,4 @@
 use anyhow::Context;
-use axum::{routing::get, Router, Extension};
 use std::sync::Arc;
 
 mod consts;
@@ -26,8 +25,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn run_server(indexer: Arc<Indexer>) -> anyhow::Result<()> {
-    let app = Router::new().route("/", get(routes::index_handler))
-        .layer(Extension(indexer));
+    let app = routes::create_router(indexer);
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", consts::PORT))
         .await
