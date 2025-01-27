@@ -10,7 +10,7 @@ use tantivy::{
     doc,
     query::QueryParser,
     schema::{Schema, Value, FAST, STORED, TEXT},
-    Index, IndexWriter, Snippet, SnippetGenerator, TantivyDocument,
+    Index, IndexWriter, ReloadPolicy, Snippet, SnippetGenerator, TantivyDocument,
 };
 use tokio::sync::mpsc;
 
@@ -20,6 +20,8 @@ pub struct Indexer {
     index: Index,
     index_writer: Arc<RwLock<IndexWriter>>,
     schema: Schema,
+    reader: Arc<RwLock<tantivy::IndexReader>>,
+    query_parser: Arc<RwLock<QueryParser>>,
 }
 
 impl Indexer {
@@ -30,10 +32,31 @@ impl Indexer {
         let index_writer: Arc<RwLock<IndexWriter>> =
             Arc::new(RwLock::new(index.writer(50_000_000)?));
 
+        let reader = Arc::new(RwLock::new(
+            index
+                .reader_builder()
+                .reload_policy(ReloadPolicy::OnCommitWithDelay)
+                .try_into()?,
+        ));
+
+        let title_field = schema.get_field("title").unwrap();
+        let description_field = schema.get_field("description").unwrap();
+        let body_field = schema.get_field("body").unwrap();
+
+        let mut query_parser =
+            QueryParser::for_index(&index, vec![title_field, body_field, description_field]);
+        query_parser.set_field_boost(title_field, 2.0);
+        query_parser.set_field_boost(body_field, 1.0);
+        query_parser.set_field_boost(description_field, 0.5);
+
+        let query_parser = Arc::new(RwLock::new(query_parser));
+
         Ok(Indexer {
             index,
             index_writer,
             schema,
+            reader,
+            query_parser,
         })
     }
 
@@ -100,27 +123,15 @@ impl Indexer {
     }
 
     pub fn search(&self, query_str: &str, num_docs: usize) -> anyhow::Result<Vec<SearchResult>> {
-        // Open a searcher.
-        let reader = self.index.reader().context("Could not open reader")?;
+        let reader = self.reader.read().unwrap();
         let searcher = reader.searcher();
 
-        // Get fields.
         let schema = &self.schema;
         let title_field = schema.get_field("title").unwrap();
-        let description_field = schema.get_field("description").unwrap();
         let body_field = schema.get_field("body").unwrap();
-        let url_field = self.schema.get_field("url").unwrap();
+        let url_field = schema.get_field("url").unwrap();
 
-        // Create a query parser. Weight some fields for hopefully more relevant results.
-        let mut query_parser = QueryParser::for_index(
-            &self.index,
-            vec![title_field, body_field, description_field],
-        );
-        query_parser.set_field_boost(title_field, 2.0);
-        query_parser.set_field_boost(body_field, 1.0);
-        query_parser.set_field_boost(description_field, 0.5);
-
-        // Parse the query.
+        let query_parser = self.query_parser.read().unwrap();
         let query = query_parser
             .parse_query(query_str)
             .context("Could not parse query")?;
