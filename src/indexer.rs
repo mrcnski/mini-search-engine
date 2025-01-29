@@ -173,27 +173,7 @@ impl Indexer {
 
         self.is_dirty.store(true, Ordering::Relaxed);
 
-        // Update domain stats
-        let stats_key = format!("domain:{domain}");
-        let current_stats = self.stats_db.get(&stats_key)?.unwrap_or_default();
-        let mut stats: RawDomainStats =
-            bincode::deserialize(&current_stats).unwrap_or_else(|_| Default::default());
-
-        stats.page_count += 1;
-        stats.total_size += size;
-
-        // Update min size and URL
-        if size < stats.min_size {
-            stats.min_size = size;
-            stats.min_url = url.to_string();
-        }
-        // Update max size and URL
-        if size > stats.max_size {
-            stats.max_size = size;
-            stats.max_url = url.to_string();
-        }
-        self.stats_db
-            .insert(stats_key, bincode::serialize(&stats)?)?;
+        self.update_domain_stats(domain, url, size)?;
 
         Ok(())
     }
@@ -299,6 +279,31 @@ impl Indexer {
         println!("collate results: {duration:?}");
 
         Ok(results)
+    }
+
+    fn update_domain_stats(&self, domain: &str, url: &str, size: u64) -> anyhow::Result<()> {
+        let stats_key = format!("domain:{domain}");
+        let current_stats = self.stats_db.get(&stats_key)?.unwrap_or_default();
+        let mut stats: RawDomainStats =
+            bincode::deserialize(&current_stats).unwrap_or_else(|_| Default::default());
+
+        stats.page_count += 1;
+        stats.total_size += size;
+
+        // Update min size and URL
+        if size < stats.min_size {
+            stats.min_size = size;
+            stats.min_url = url.to_string();
+        }
+        // Update max size and URL
+        if size > stats.max_size {
+            stats.max_size = size;
+            stats.max_url = url.to_string();
+        }
+        self.stats_db
+            .insert(stats_key, bincode::serialize(&stats)?)?;
+
+        Ok(())
     }
 
     pub fn get_domain_stats(&self) -> anyhow::Result<Vec<DomainStats>> {
