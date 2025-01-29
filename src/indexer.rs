@@ -36,23 +36,10 @@ impl Indexer {
         let schema = Self::create_schema();
         let index = Self::create_index(&schema, index_path).await?;
         let reader = Self::create_reader(&index)?;
-
         let index_writer: Arc<RwLock<IndexWriter>> =
             Arc::new(RwLock::new(index.writer(50_000_000)?));
-
-        let title_field = schema.get_field("title").unwrap();
-        let description_field = schema.get_field("description").unwrap();
-        let body_field = schema.get_field("body").unwrap();
-
-        let mut query_parser =
-            QueryParser::for_index(&index, vec![title_field, body_field, description_field]);
-        query_parser.set_field_boost(title_field, 2.0);
-        query_parser.set_field_boost(body_field, 1.0);
-        query_parser.set_field_boost(description_field, 1.5);
-
-        let query_parser = Arc::new(RwLock::new(query_parser));
-
-        let stats_db = sled::open("stats.db")?;
+        let query_parser = Self::create_query_parser(&index, &schema)?;
+        let stats_db = Self::create_stats_db()?;
 
         Ok(Indexer {
             index,
@@ -114,6 +101,30 @@ impl Indexer {
                 // })])
                 .try_into()?,
         )))
+    }
+
+    fn create_query_parser(
+        index: &Index,
+        schema: &Schema,
+    ) -> anyhow::Result<Arc<RwLock<QueryParser>>> {
+        let title_field = schema.get_field("title").unwrap();
+        let description_field = schema.get_field("description").unwrap();
+        let body_field = schema.get_field("body").unwrap();
+
+        let mut query_parser =
+            QueryParser::for_index(index, vec![title_field, body_field, description_field]);
+        query_parser.set_field_boost(title_field, 2.0);
+        query_parser.set_field_boost(body_field, 1.0);
+        query_parser.set_field_boost(description_field, 1.5);
+
+        Ok(Arc::new(RwLock::new(query_parser)))
+    }
+
+    fn create_stats_db() -> anyhow::Result<sled::Db> {
+        // TODO: Remove this once we finalize the schema.
+        let _ = std::fs::remove_dir_all(consts::DB_NAME);
+
+        Ok(sled::open(consts::DB_NAME)?)
     }
 
     pub fn add_page(&self, SearchPage { page, domain }: &SearchPage) -> anyhow::Result<()> {

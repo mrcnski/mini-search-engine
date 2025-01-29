@@ -27,7 +27,7 @@ fn init(url: &str, page_limit: u32) -> anyhow::Result<Website> {
             500,
         )))))
         .with_wait_for_idle_dom(Some(WaitForSelector::new(
-            Some(Duration::from_millis(1000)),
+            Some(Duration::from_millis(200)),
             "body".into(),
         )))
         .with_block_assets(true)
