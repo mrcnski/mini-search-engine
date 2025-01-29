@@ -68,7 +68,20 @@ TODO
   response](https://github.com/spider-rs/spider/issues/253) without diving into
   the source code.
   - After implementing the `stats` page, I realized that crawling was
-    short-circuiting for some domains. TODO
+    short-circuiting for some domains:
+    - **Invalid HTTPS certificates:** I enabled this by adding the
+      `.with_danger_accept_invalid_certs(true)` setting. While this is a
+      security concern, we are prioritizing relevance over security. :)
+    - **Meta refresh redirects:** Some domains had a homepage with HTML content
+      like: `<meta http-equiv="refresh" content="0; url=en/latest/contents.html"
+      />`. In the browser this is detected as an HTML redirect (as opposed to an
+      HTTP redirect). Since we are only making HTTP requests (not running a
+      headless browser), `spider` was not handling this case. TODO
+    - **Javascript-rendered pages:** Some pages, like `forum.crystal-lang.org`,
+      seem to use Javascript to render the page. Since we are not using
+      Javascript rendering, the crawler is not able to crawl these pages.
+    - **Broken domains:** some domains like `modernizr.com` are no longer
+      functional. There is nothing we can do in this situation.
 - Making the queries **performant**.
   - Initially I was getting 50ms times for a small test index, which was
     dangerously close to the maximum latency allowed. I played around with the

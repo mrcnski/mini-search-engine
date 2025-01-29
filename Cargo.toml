@@ -14,10 +14,12 @@ mimalloc = "0.1"
 scraper = "0.22.0"
 serde = { version = "1.0", features = ["derive"] }
 sled = "0.34"
-spider = { version = "2.27", default-features = true, features = [] }
+# Use 'sync' flag to requeue meta refresh redirects during crawling.
+spider = { version = "2.27", default-features = true, features = ["sync"] }
 tantivy = "0.22.0"
 tera = "1.19.1"
 tokio = { version = "1.0", features = ["full"] }
+url = "2.5.4"
 
 [profile.release]
 # TODO: Enable before finishing project?
