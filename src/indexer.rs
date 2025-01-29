@@ -130,29 +130,6 @@ impl Indexer {
     pub fn add_page(&self, SearchPage { page, domain }: &SearchPage) -> anyhow::Result<()> {
         let html = page.get_html();
         let url = page.get_url();
-        let size = u64::try_from(html.len())?;
-
-        // Update domain stats
-        let stats_key = format!("domain:{domain}");
-        let current_stats = self.stats_db.get(&stats_key)?.unwrap_or_default();
-        // (page_count, total_size, min_size, max_size, min_url, max_url)
-        let mut stats: (u64, u64, u64, u64, String, String) = 
-            bincode::deserialize(&current_stats).unwrap_or((0, 0, u64::MAX, 0, String::new(), String::new()));
-        stats.0 += 1; // increment count
-        stats.1 += size; // add total size
-        
-        // Update min size and URL
-        if size < stats.2 {
-            stats.2 = size;
-            stats.4 = url.to_string();
-        }
-        // Update max size and URL
-        if size > stats.3 {
-            stats.3 = size;
-            stats.5 = url.to_string();
-        }
-        self.stats_db
-            .insert(stats_key, bincode::serialize(&stats)?)?;
 
         let document = Html::parse_document(&html);
 
@@ -175,6 +152,7 @@ impl Indexer {
         } else {
             String::new()
         };
+        let size = u64::try_from(body.len())?;
 
         let title_field = self.schema.get_field("title").unwrap();
         let description_field = self.schema.get_field("description").unwrap();
@@ -194,6 +172,28 @@ impl Indexer {
         ))?;
 
         self.is_dirty.store(true, Ordering::Relaxed);
+
+        // Update domain stats
+        let stats_key = format!("domain:{domain}");
+        let current_stats = self.stats_db.get(&stats_key)?.unwrap_or_default();
+        // (page_count, total_size, min_size, max_size, min_url, max_url)
+        let mut stats: (u64, u64, u64, u64, String, String) =
+            bincode::deserialize(&current_stats).unwrap_or((0, 0, u64::MAX, 0, String::new(), String::new()));
+        stats.0 += 1; // increment count
+        stats.1 += size; // add total size
+
+        // Update min size and URL
+        if size < stats.2 {
+            stats.2 = size;
+            stats.4 = url.to_string();
+        }
+        // Update max size and URL
+        if size > stats.3 {
+            stats.3 = size;
+            stats.5 = url.to_string();
+        }
+        self.stats_db
+            .insert(stats_key, bincode::serialize(&stats)?)?;
 
         Ok(())
     }
