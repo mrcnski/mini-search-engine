@@ -135,12 +135,22 @@ impl Indexer {
         // Update domain stats
         let stats_key = format!("domain:{domain}");
         let current_stats = self.stats_db.get(&stats_key)?.unwrap_or_default();
-        // (page_count, total_size, min_size, max_size)
-        let mut stats: (u64, u64, u64, u64) = bincode::deserialize(&current_stats).unwrap_or((0, 0, u64::MAX, 0));
+        // (page_count, total_size, min_size, max_size, min_url, max_url)
+        let mut stats: (u64, u64, u64, u64, String, String) = 
+            bincode::deserialize(&current_stats).unwrap_or((0, 0, u64::MAX, 0, String::new(), String::new()));
         stats.0 += 1; // increment count
         stats.1 += size; // add total size
-        stats.2 = stats.2.min(size); // update min size
-        stats.3 = stats.3.max(size); // update max size
+        
+        // Update min size and URL
+        if size < stats.2 {
+            stats.2 = size;
+            stats.4 = url.to_string();
+        }
+        // Update max size and URL
+        if size > stats.3 {
+            stats.3 = size;
+            stats.5 = url.to_string();
+        }
         self.stats_db
             .insert(stats_key, bincode::serialize(&stats)?)?;
 
@@ -297,7 +307,7 @@ impl Indexer {
         for item in self.stats_db.scan_prefix("domain:") {
             let (key, value) = item?;
             let domain = String::from_utf8(key.as_ref()[7..].to_vec())?;
-            let (page_count, total_size, min_size, max_size): (u64, u64, u64, u64) = bincode::deserialize(&value)?;
+            let (page_count, total_size, min_size, max_size, min_url, max_url): (u64, u64, u64, u64, String, String) = bincode::deserialize(&value)?;
 
             stats.push(DomainStats {
                 domain,
@@ -305,6 +315,8 @@ impl Indexer {
                 total_size: humansize::format_size(total_size, humansize::DECIMAL),
                 min_page_size: humansize::format_size(min_size, humansize::DECIMAL),
                 max_page_size: humansize::format_size(max_size, humansize::DECIMAL),
+                min_page_url: min_url,
+                max_page_url: max_url,
             });
         }
 
@@ -321,6 +333,8 @@ pub struct DomainStats {
     pub total_size: String,
     pub min_page_size: String,
     pub max_page_size: String,
+    pub min_page_url: String,
+    pub max_page_url: String,
 }
 
 #[derive(Serialize)]

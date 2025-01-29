@@ -28,8 +28,8 @@
             <td>{{ stat.domain }}</td>
             <td>{{ stat.page_count }}</td>
             <td>{{ stat.total_size }}</td>
-            <td>{{ stat.min_page_size }}</td>
-            <td>{{ stat.max_page_size }}</td>
+            <td><a href="{{ stat.min_page_url }}">{{ stat.min_page_size }}</a></td>
+            <td><a href="{{ stat.max_page_url }}">{{ stat.max_page_size }}</a></td>
         </tr>
         {% endfor %}
         <tr class="total">
