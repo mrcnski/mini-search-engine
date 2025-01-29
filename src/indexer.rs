@@ -1,6 +1,6 @@
 use anyhow::Context;
 use scraper::{ElementRef, Html, Node, Selector};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use spider::page::Page;
 use std::{
     sync::{
@@ -176,21 +176,21 @@ impl Indexer {
         // Update domain stats
         let stats_key = format!("domain:{domain}");
         let current_stats = self.stats_db.get(&stats_key)?.unwrap_or_default();
-        // (page_count, total_size, min_size, max_size, min_url, max_url)
-        let mut stats: (u64, u64, u64, u64, String, String) =
-            bincode::deserialize(&current_stats).unwrap_or((0, 0, u64::MAX, 0, String::new(), String::new()));
-        stats.0 += 1; // increment count
-        stats.1 += size; // add total size
+        let mut stats: RawDomainStats =
+            bincode::deserialize(&current_stats).unwrap_or_else(|_| Default::default());
+
+        stats.page_count += 1;
+        stats.total_size += size;
 
         // Update min size and URL
-        if size < stats.2 {
-            stats.2 = size;
-            stats.4 = url.to_string();
+        if size < stats.min_size {
+            stats.min_size = size;
+            stats.min_url = url.to_string();
         }
         // Update max size and URL
-        if size > stats.3 {
-            stats.3 = size;
-            stats.5 = url.to_string();
+        if size > stats.max_size {
+            stats.max_size = size;
+            stats.max_url = url.to_string();
         }
         self.stats_db
             .insert(stats_key, bincode::serialize(&stats)?)?;
@@ -307,16 +307,16 @@ impl Indexer {
         for item in self.stats_db.scan_prefix("domain:") {
             let (key, value) = item?;
             let domain = String::from_utf8(key.as_ref()[7..].to_vec())?;
-            let (page_count, total_size, min_size, max_size, min_url, max_url): (u64, u64, u64, u64, String, String) = bincode::deserialize(&value)?;
+            let raw_stats: RawDomainStats = bincode::deserialize(&value)?;
 
             stats.push(DomainStats {
                 domain,
-                page_count,
-                total_size: humansize::format_size(total_size, humansize::DECIMAL),
-                min_page_size: humansize::format_size(min_size, humansize::DECIMAL),
-                max_page_size: humansize::format_size(max_size, humansize::DECIMAL),
-                min_page_url: min_url,
-                max_page_url: max_url,
+                page_count: raw_stats.page_count,
+                total_size: humansize::format_size(raw_stats.total_size, humansize::DECIMAL),
+                min_page_size: humansize::format_size(raw_stats.min_size, humansize::DECIMAL),
+                max_page_size: humansize::format_size(raw_stats.max_size, humansize::DECIMAL),
+                min_page_url: raw_stats.min_url,
+                max_page_url: raw_stats.max_url,
             });
         }
 
@@ -325,7 +325,30 @@ impl Indexer {
     }
 }
 
-/// The result of a web search.
+#[derive(Serialize, Deserialize)]
+struct RawDomainStats {
+    page_count: u64,
+    total_size: u64,
+    min_size: u64,
+    max_size: u64,
+    min_url: String,
+    max_url: String,
+}
+
+impl Default for RawDomainStats {
+    fn default() -> Self {
+        Self {
+            page_count: Default::default(),
+            total_size: Default::default(),
+            min_size: u64::MAX,
+            max_size: Default::default(),
+            min_url: Default::default(),
+            max_url: Default::default(),
+        }
+    }
+}
+
+/// Domain stats with human-readable values.
 #[derive(Serialize)]
 pub struct DomainStats {
     pub domain: String,
@@ -337,6 +360,7 @@ pub struct DomainStats {
     pub max_page_url: String,
 }
 
+/// The result of a web search.
 #[derive(Serialize)]
 pub struct SearchResult {
     pub title: String,
