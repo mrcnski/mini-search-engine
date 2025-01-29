@@ -7,7 +7,7 @@ pub const NAME: &str = "Mini Search Engine";
 // TODO: Update these values.
 pub const DOMAINS_FILE: &str = "domains";
 pub const LOG_INTERVAL_PER_DOMAIN: u32 = 10;
-pub const MAX_PAGES_PER_DOMAIN: u32 = 15;
+pub const MAX_PAGES_PER_DOMAIN: u32 = 10;
 
 // Indexer consts.
 pub const DB_NAME: &str = "stats.db";

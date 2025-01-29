@@ -1,9 +1,9 @@
 use anyhow::{self, Context};
 use scraper::{Html, Selector};
 use spider::{
-    page::Page,
     configuration::{WaitForIdleNetwork, WaitForSelector},
     features::chrome_common::RequestInterceptConfiguration,
+    page::Page,
     tokio,
     website::Website,
 };
@@ -14,76 +14,107 @@ use std::{
     },
     time::Instant,
 };
-use tokio::{sync::mpsc, task::JoinSet, time::Duration};
+use tokio::{
+    sync::{broadcast, mpsc},
+    task::JoinSet,
+    time::Duration,
+};
 use url::{ParseError, Url};
 
 use crate::{consts, indexer::SearchPage, utils::log};
 
-fn init(url: &str, page_limit: u32) -> anyhow::Result<Website> {
-    // Some chrome settings.
-    let mut interception = RequestInterceptConfiguration::new(true);
-    interception.block_javascript = true;
+struct DomainCrawler {
+    website: Website,
+}
 
-    let mut website = Website::new(url)
-        .with_limit(page_limit)
-         // NOTE: Accept invalid certs as we prioritize relevance over security.
-        .with_danger_accept_invalid_certs(true)
-        .with_depth(0) // No max crawl depth. Use page limit only.
-        .with_block_assets(true)
-        .with_return_page_links(true) // TODO: set to false?
-        .with_respect_robots_txt(true)
-        .with_normalize(true)
+impl DomainCrawler {
+    fn new(url: &str, page_limit: u32) -> anyhow::Result<Self> {
         // Some chrome settings.
-        .with_chrome_intercept(interception)
-        .with_fingerprint(true)
-        .with_stealth(true)
-        // .with_wait_for_delay(Some(WaitForDelay::new(Some(Duration::from_millis(10000)))))
-        .with_wait_for_idle_network(Some(WaitForIdleNetwork::new(Some(Duration::from_millis(
-            500,
-        )))))
-        .with_wait_for_idle_dom(Some(WaitForSelector::new(
-            Some(Duration::from_millis(200)),
-            "body".into(),
-        )))
-        // .with_proxies(Some(vec!["http://localhost:8888".into()]))
-        // .with_chrome_connection(Some("http://127.0.0.1:9222/json/version".into()))
-        .build()?;
+        let mut interception = RequestInterceptConfiguration::new(true);
+        interception.block_javascript = true;
 
-    // // Follow meta refresh redirects.
-    // fn on_should_crawl_callback(page: &mut Page) -> bool {
-    //     let redirect = get_meta_redirect_url(&page.get_html(), page.get_url());
+        let mut website = Website::new(url)
+            .with_limit(page_limit)
+            // NOTE: Accept invalid certs as we prioritize relevance over security.
+            .with_danger_accept_invalid_certs(true)
+            .with_depth(0) // No max crawl depth. Use page limit only.
+            .with_block_assets(true)
+            .with_return_page_links(true) // TODO: set to false?
+            .with_respect_robots_txt(true)
+            .with_normalize(true)
+            // Some chrome settings.
+            .with_chrome_intercept(interception)
+            .with_fingerprint(true)
+            .with_stealth(true)
+            // .with_wait_for_delay(Some(WaitForDelay::new(Some(Duration::from_millis(10000)))))
+            .with_wait_for_idle_network(Some(WaitForIdleNetwork::new(Some(Duration::from_millis(
+                500,
+            )))))
+            .with_wait_for_idle_dom(Some(WaitForSelector::new(
+                Some(Duration::from_millis(200)),
+                "body".into(),
+            )))
+            // .with_proxies(Some(vec!["http://localhost:8888".into()]))
+            // .with_chrome_connection(Some("http://127.0.0.1:9222/json/version".into()))
+            .build()?;
 
-    //     if let Some(redirect) = redirect {
-    //         page.final_redirect_destination = Some(redirect);
-    //     }
+        // // Follow meta refresh redirects.
+        // fn on_should_crawl_callback(page: &mut Page) -> bool {
+        //     let redirect = get_meta_redirect_url(&page.get_html(), page.get_url());
 
-    //     true
-    // }
-    // website.on_should_crawl_callback = Some(on_should_crawl_callback);
+        //     if let Some(redirect) = redirect {
+        //         page.final_redirect_destination = Some(redirect);
+        //     }
 
-    Ok(website)
+        //     true
+        // }
+        // website.on_should_crawl_callback = Some(on_should_crawl_callback);
+
+        Ok(Self { website })
+    }
+
+    fn subscribe(&mut self, capacity: usize) -> Option<broadcast::Receiver<Page>> {
+        self.website.subscribe(capacity)
+    }
+
+    /// Crawl, sending pages to page receiver, and unsubscribe when done.
+    async fn crawl(&mut self) {
+        self.website.crawl().await;
+        self.website.unsubscribe();
+    }
 }
 
 pub async fn initial_crawl(indexer_tx: mpsc::Sender<SearchPage>) -> anyhow::Result<()> {
     let start = Instant::now();
 
-    // We assume one valid domain per line.
-    let domains = tokio::fs::read_to_string(consts::DOMAINS_FILE).await?;
-    // TODO: remove the `take`. Just want a small test set for now.
-    // let domains = domains.lines().take(20);
+    let domains = get_domains_to_crawl().await?;
 
+    crawl_domains(&domains, indexer_tx).await?;
+
+    let duration = start.elapsed();
+    println!();
+    println!("Finished crawling in {:?}", duration);
+
+    Ok(())
+}
+
+async fn crawl_domains(
+    domains: &[String],
+    indexer_tx: mpsc::Sender<SearchPage>,
+) -> anyhow::Result<()> {
     // Have separate tasks for each domain. We'll process multiple domains in parallel, and
     // hopefully not get blocked or rate-limited from any target domain. This also follows the
-    // `spider` examples (except they didn't use a JoinSet).
+    // `spider` examples (except they didn't use a `JoinSet`).
     let mut crawl_domain_tasks: JoinSet<()> = JoinSet::new();
 
-    for domain in domains.lines() {
+    for domain in domains {
         println!("Crawling domain: {}", domain);
 
-        let mut website = init(domain, consts::MAX_PAGES_PER_DOMAIN)?;
-        let mut crawl_rx = website
+        let mut crawler = DomainCrawler::new(&domain, consts::MAX_PAGES_PER_DOMAIN)?;
+        let mut crawl_rx = crawler
             .subscribe(16)
             .context("Failed to subscribe to website crawler")?;
+
         let indexer_tx = Arc::new(indexer_tx.to_owned()); // Create owned value for the async task.
         let domain = Arc::new(domain.to_owned()); // Create owned value for the async task.
 
@@ -107,7 +138,8 @@ pub async fn initial_crawl(indexer_tx: mpsc::Sender<SearchPage>) -> anyhow::Resu
                         // Provide some visual indication of crawl progress.
                         let cur_count = page_count
                             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| Some(x + 1))
-                            .unwrap_or_else(|e| e) + 1; // Add 1 since the previous value is returned.
+                            .unwrap_or_else(|e| e)
+                            + 1; // Add 1 since the previous value is returned.
                         if cur_count % consts::LOG_INTERVAL_PER_DOMAIN == 0 {
                             log(&format!("{domain}: crawled {cur_count} pages...\n")).await;
                         }
@@ -140,9 +172,7 @@ pub async fn initial_crawl(indexer_tx: mpsc::Sender<SearchPage>) -> anyhow::Resu
                 }
             });
 
-            // Crawl, sending pages to page receiver, and unsubscribe when done.
-            website.crawl().await;
-            website.unsubscribe();
+            crawler.crawl().await;
 
             if let Err(e) = recv_handle.await {
                 log(&format!("WARNING: could not crawl: {e}")).await;
@@ -154,11 +184,15 @@ pub async fn initial_crawl(indexer_tx: mpsc::Sender<SearchPage>) -> anyhow::Resu
     // Wait for all domain crawlers to finish.
     crawl_domain_tasks.join_all().await;
 
-    let duration = start.elapsed();
-    println!();
-    println!("Finished crawling in {:?}", duration);
-
     Ok(())
+}
+
+async fn get_domains_to_crawl() -> anyhow::Result<Vec<String>> {
+    // We assume one valid domain per line.
+    let domains = tokio::fs::read_to_string(consts::DOMAINS_FILE).await?;
+    // TODO: remove the `take`. Just want a small test set for now.
+    // let domains = domains.lines().take(20);
+    Ok(domains.lines().map(|s| s.to_string()).collect())
 }
 
 fn get_meta_redirect_url(html: &str, url: &str) -> Option<String> {
@@ -176,7 +210,7 @@ fn get_meta_redirect_url(html: &str, url: &str) -> Option<String> {
     } else if url_part.starts_with("URL=") {
         url_part.trim_start_matches("URL=").trim()
     } else {
-        return None
+        return None;
     };
     let path = path.trim_matches(|c| c == '\'' || c == '"');
 
@@ -223,17 +257,11 @@ mod tests {
 
         // No redirect
         let html = r#"<html><head><title>No redirect here</title></head></html>"#;
-        assert_eq!(
-            get_meta_redirect_url(html, "https://source.com"),
-            None
-        );
+        assert_eq!(get_meta_redirect_url(html, "https://source.com"), None);
 
         // Malformed content attribute
         let html = r#"<html><head><meta http-equiv="refresh" content="malformed"></head></html>"#;
-        assert_eq!(
-            get_meta_redirect_url(html, "https://source.com"),
-            None
-        );
+        assert_eq!(get_meta_redirect_url(html, "https://source.com"), None);
 
         // Relative path without leading slash
         let html = r#"<meta http-equiv="refresh" content="0; url=en/latest/contents.html" />"#;
