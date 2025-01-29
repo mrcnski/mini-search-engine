@@ -171,7 +171,14 @@ fn get_meta_redirect_url(html: &str, url: &str) -> Option<String> {
 
     let content = el.value().attr("content")?;
     let url_part = content.split(";").nth(1)?.trim();
-    let path = url_part.trim_start_matches("url=").trim();
+    let path = if url_part.starts_with("url=") {
+        url_part.trim_start_matches("url=").trim()
+    } else if url_part.starts_with("URL=") {
+        url_part.trim_start_matches("URL=").trim()
+    } else {
+        return None
+    };
+    let path = path.trim_matches(|c| c == '\'' || c == '"');
 
     resolve_url(url, path).ok()
 }
@@ -180,4 +187,79 @@ fn resolve_url(base: &str, path: &str) -> Result<String, ParseError> {
     let base_url = Url::parse(base)?;
     let resolved_url = base_url.join(path)?;
     Ok(resolved_url.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_meta_redirect_url() {
+        // Basic redirect
+        let html = r#"<html><head><meta http-equiv="refresh" content="0; url=https://example.com"></head></html>"#;
+        assert_eq!(
+            get_meta_redirect_url(html, "https://source.com"),
+            Some("https://example.com/".to_string())
+        );
+
+        // Redirect with delay
+        let html = r#"<html><head><meta http-equiv="refresh" content="5;url=https://example.com/page"></head></html>"#;
+        assert_eq!(
+            get_meta_redirect_url(html, "https://source.com"),
+            Some("https://example.com/page".to_string())
+        );
+
+        // Relative URL redirect
+        let html = r#"<html><head><meta http-equiv="refresh" content="0;url=/relative/path"></head></html>"#;
+        assert_eq!(
+            get_meta_redirect_url(html, "https://source.com/en"),
+            Some("https://source.com/relative/path".to_string())
+        );
+        let html = r#"<html><head><meta http-equiv="refresh" content="0;url=relative/path"></head></html>"#;
+        assert_eq!(
+            get_meta_redirect_url(html, "https://source.com/en"),
+            Some("https://source.com/relative/path".to_string())
+        );
+
+        // No redirect
+        let html = r#"<html><head><title>No redirect here</title></head></html>"#;
+        assert_eq!(
+            get_meta_redirect_url(html, "https://source.com"),
+            None
+        );
+
+        // Malformed content attribute
+        let html = r#"<html><head><meta http-equiv="refresh" content="malformed"></head></html>"#;
+        assert_eq!(
+            get_meta_redirect_url(html, "https://source.com"),
+            None
+        );
+
+        // Relative path without leading slash
+        let html = r#"<meta http-equiv="refresh" content="0; url=en/latest/contents.html" />"#;
+        assert_eq!(
+            get_meta_redirect_url(html, "https://source.com"),
+            Some("https://source.com/en/latest/contents.html".to_string())
+        );
+
+        // URL capitalized and with single quotes
+        let html = r#"
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+<meta http-equiv="content-type" content="text/html;charset=utf-8" />
+<title>Moved</title>
+<meta http-equiv="refresh" content="0;URL='en/'" />
+<script>window.ohcglobal || document.write('<script src="/en/dcommon/js/global.js">\x3C/script>')</script></head>
+<body>
+<p></p>
+</body>
+</html>
+"#;
+        assert_eq!(
+            get_meta_redirect_url(html, "https://source.com"),
+            Some("https://source.com/en/".to_string())
+        );
+    }
 }
