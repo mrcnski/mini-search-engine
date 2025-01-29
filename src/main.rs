@@ -1,3 +1,8 @@
+// Set allocator.
+use mimalloc::MiMalloc;
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 use anyhow::Context;
 use std::sync::Arc;
 

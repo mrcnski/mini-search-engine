@@ -9,18 +9,17 @@ axum = "0.7"
 bincode = "1.3.3"
 bytesize = "1.3.0"
 humansize = "2.1.3"
-jemallocator = "0.5"
 lazy_static = "1.5.0"
+mimalloc = "0.1"
 scraper = "0.22.0"
 serde = { version = "1.0", features = ["derive"] }
 sled = "0.34"
-spider = "2.26.15"
+spider = { version = "2.27", default-features = true, features = [] }
 tantivy = "0.22.0"
 tera = "1.19.1"
 tokio = { version = "1.0", features = ["full"] }
 
 [profile.release]
-allocator = "jemalloc"
 # TODO: Enable before finishing project?
 # opt-level = 3           # Use "3" for maximum speed
 # debug = false           # Disable debug information

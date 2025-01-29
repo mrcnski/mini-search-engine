@@ -62,14 +62,17 @@ TODO
 
 ### Challenges Faced
 
-- I encountered some mild confusion around the usage of the `spider` crawler due
-  to unclear docs. Luckily I was able to [ask the developer and get a quick
+- I encountered some issues with **crawling**:
+  - The usage of the `spider` crawler due to unclear docs. Luckily, I was able
+  to [ask the developer and get a quick
   response](https://github.com/spider-rs/spider/issues/253) without diving into
   the source code.
-- Making the queries performant.
+  - After implementing the `stats` page, I realized that crawling was
+    short-circuiting for some domains. TODO
+- Making the queries **performant**.
   - Initially I was getting 50ms times for a small test index, which was
-    dangerously close to the maximum latency allowed. So I played around with
-    the `FAST` flag on tantivy schema fields. Setting it on the `title` and
+    dangerously close to the maximum latency allowed. I played around with the
+    `FAST` flag on tantivy schema fields. Setting it on the `title` and
     `description` fields boosted the query performance by almost 2x!
     Interestingly, setting it on the `body` field brought the performance back
     down to original slow levels.
@@ -77,11 +80,14 @@ TODO
     strategies. I enabled a token limit on fast fields and enabled Rust compiler
     optimizations. The biggest impact seemed to come from replacing the system
     allocator with `jemalloc`, resulting in another **huge** performance boost!
-    (On my Mac machine, at least.)
-  - I was still seeing fairly high latencies. After bugging them on Discord and
-    measuring the different stages of `search`, I eventually realized that
-    snippets were being generated from large `<script>` elements. I added
-    additional filtering for these elements before indexing the text of a page.
+    (On my Mac machine, at least.) (I then switched to `mimalloc` because
+    `jemalloc` was segfaulting on my Mac.)
+  - I was still seeing fairly high latencies. After measuring the different
+    stages of `search`, I eventually realized that snippets were being generated
+    from large `<script>` elements. I added additional filtering for these
+    elements before indexing the text of a page.
+  - I also decided not to *containerize* the application to avoid any possible
+    performance hit (even though the penalty is usually very small).
 
 TODO
 
