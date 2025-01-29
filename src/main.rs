@@ -10,7 +10,6 @@ mod consts;
 mod crawler;
 mod indexer;
 mod routes;
-mod utils;
 
 use indexer::Indexer;
 
