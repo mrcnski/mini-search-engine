@@ -84,7 +84,7 @@ TODO
     Javascript rendering, the crawler is not able to crawl these pages.
   - **Broken domains:** some domains like `modernizr.com` are no longer
     functional. There is nothing we can do in this situation.
-    
+
 #### Performance
 
 - Initially I was getting 50ms times for a small test index, which was
@@ -105,24 +105,41 @@ TODO
   elements before indexing the text of a page.
 - I also decided not to *containerize* the application to avoid any possible
   performance hit (even though the penalty is usually very small).
-  
+
 #### Ranking strategy
 
 - I tried setting some fields to fuzzy (matching with Levenshtein distance) to
   catch user typos or similar terms. This unfortunately broke snippet
   generation. I wrote [an issue about
   it](https://github.com/quickwit-oss/tantivy/issues/2576).
+- `tantivy` does not expose its search parameters, e.g. [for
+  BM25](https://github.com/quickwit-oss/tantivy/issues/2195), so I was not able
+  to experiment with these. In the future, it may be possible to submit a change
+  request or fork the project to allow customizing these parameters. However, I
+  assume that the default parameters were chosen with a lot of care and are good
+  for most documents.
 
 TODO
 
 ### Ranking Strategy
 
-I added querying over page titles and descriptions and prioritized these fields.
-I also flagged them as `FAST`, which I believe uses raw tokenization according
-to the docs. This means we match exact tokens in these fields, while in the body
-(which is not `FAST`) we use the default fuzzy matching. TODO
+`tantivy` already returns the results of a search ranked by relevancy,
+incorporating industry-standard techniques such as BM25 scoring. However, this
+project tries to improve search relevancy with some simple strategies:
+
+- In addition to querying page text, we also query over titles and descriptions
+  and prioritize ("boost") these fields.
+  - These fields are also flagged as `FAST`, which I believe uses raw
+    tokenization according to the docs. This means we match exact tokens in
+    these fields, while in the body (which is not `FAST`) we use the default
+    fuzzy matching. TODO
+- Initially, the search "clojure for loop" would return a result for Crystal
+  ranked higher than results for Clojure. TODO
+- I tried to set some fields to fuzzy but ran into a bug - see "Challenges
+  Faced" above.
 
 TODO
+
 
 ## Possible Future Directions
 

@@ -72,20 +72,11 @@ impl Indexer {
         // Create index directory if it doesn't exist
         tokio::fs::create_dir_all(index_path).await?;
 
-        let mut index = if new_index {
+        let index = if new_index {
             Index::create_in_dir(index_path, schema.clone())?
         } else {
             Index::open_in_dir(index_path)?
         };
-
-        let ff_tokenizer_manager = tokenizer::TokenizerManager::default();
-        ff_tokenizer_manager.register(
-            "raw",
-            tokenizer::TextAnalyzer::builder(tokenizer::RawTokenizer::default())
-                .filter(tokenizer::RemoveLongFilter::limit(255))
-                .build(),
-        );
-        index.set_fast_field_tokenizers(ff_tokenizer_manager.clone());
 
         Ok(index)
     }
@@ -95,15 +86,6 @@ impl Indexer {
             index
                 .reader_builder()
                 .reload_policy(ReloadPolicy::OnCommitWithDelay)
-                // .warmers(vec![Box::new(|searcher| {
-                //     searcher
-                //         .segment_readers()
-                //         .iter()
-                //         .for_each(|segment_reader| {
-                //             let _ = segment_reader.fast_fields().str("title");
-                //             let _ = segment_reader.fast_fields().str("description");
-                //         });
-                // })])
                 .try_into()?,
         )))
     }
@@ -125,6 +107,7 @@ impl Indexer {
         query_parser.set_field_boost(description_field, 1.5);
 
         // Enable fuzzy search for more error tolerance for the user.
+        // REMOVED: breaks snippet generation.
         // query_parser.set_field_fuzzy(title_field, false, 1, true);
         // query_parser.set_field_fuzzy(body_field, false, 1, true);
         // query_parser.set_field_fuzzy(description_field, false, 1, true);
@@ -236,27 +219,19 @@ impl Indexer {
             .context("Could not parse query")?;
 
         // Collect top results.
-        let start = std::time::Instant::now();
         let top_docs = searcher
             .search(&query, &TopDocs::with_limit(num_docs))
             .context("Could not execute search")?;
-        let duration = start.elapsed();
-        println!("search: {duration:?}");
 
         // Create a SnippetGenerator
         let snippet_generator = SnippetGenerator::create(&searcher, &*query, body_field)?;
 
         // Display results.
-        let start = std::time::Instant::now();
         let results = top_docs
             .into_iter()
             .map(|(_score, doc_address)| {
-                let start = std::time::Instant::now();
                 let retrieved_doc: TantivyDocument = searcher.doc(doc_address).unwrap();
-                let duration = start.elapsed();
-                println!("get doc: {duration:?}");
 
-                let start = std::time::Instant::now();
                 let title = retrieved_doc
                     .get_first(title_field)
                     .unwrap()
@@ -269,17 +244,9 @@ impl Indexer {
                     .as_str()
                     .unwrap()
                     .to_string();
-                let duration = start.elapsed();
-                println!("get fields: {duration:?}");
 
-                let start = std::time::Instant::now();
                 let snippet = snippet_generator.snippet_from_doc(&retrieved_doc);
                 let snippet = snippet.to_html();
-                let duration = start.elapsed();
-                println!("snippet: {duration:?}");
-
-                // let explanation = query.explain(&searcher, doc_address)?;
-                // println!("Explanation: {}", explanation.to_pretty_json());
 
                 SearchResult {
                     title,
@@ -288,8 +255,6 @@ impl Indexer {
                 }
             })
             .collect();
-        let duration = start.elapsed();
-        println!("collate results: {duration:?}");
 
         Ok(results)
     }
