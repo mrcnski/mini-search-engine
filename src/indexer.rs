@@ -20,6 +20,136 @@ use tokio::sync::mpsc;
 
 use crate::consts;
 
+/// Tech terms to boost within queries. Generated from `domains` using AI.
+const TECH_TERMS_TO_BOOST: &[&str] = &[
+    "actix",
+    "angular",
+    "ansible",
+    "astro",
+    "aws",
+    "azure",
+    "bash",
+    "c",
+    "c-lang",
+    "clang",
+    "c++",
+    "cpp",
+    "c++-lang",
+    "cpplang",
+    "clojure",
+    "clojurescript",
+    "coffee",
+    "coffeescript",
+    "crystal",
+    "crystal-lang",
+    "css",
+    "dart",
+    "dart-lang",
+    "dartlang",
+    "deno",
+    "django",
+    "docker",
+    "dotnet",
+    "elixir",
+    "elixir-lang",
+    "elixirlang",
+    "ember",
+    "erlang",
+    "erlang-lang",
+    "erlanglang",
+    "fastapi",
+    "flask",
+    "flutter",
+    "gatsby",
+    "git",
+    "github",
+    "gitlab",
+    "go",
+    "golang",
+    "gradle",
+    "graphql",
+    "groovy",
+    "haskell",
+    "html",
+    "java",
+    "java-lang",
+    "javalang",
+    "javascript",
+    "jenkins",
+    "jquery",
+    "js",
+    "json",
+    "jupyter",
+    "kafka",
+    "kotlin",
+    "kotlin-lang",
+    "kubernetes",
+    "laravel",
+    "linux",
+    "lisp",
+    "lua",
+    "lua-lang",
+    "lualang",
+    "maven",
+    "mongodb",
+    "mysql",
+    "nextjs",
+    "nginx",
+    "nim",
+    "nim-lang",
+    "nimlang",
+    "nodejs",
+    "nosql",
+    "npm",
+    "nuxt",
+    "ocaml",
+    "perl",
+    "perl-lang",
+    "php",
+    "php-lang",
+    "postgres",
+    "postgresql",
+    "python",
+    "python-lang",
+    "pythonlang",
+    "r",
+    "rails",
+    "react",
+    "reactjs",
+    "redis",
+    "redux",
+    "ruby",
+    "ruby-lang",
+    "rubylang",
+    "rust",
+    "rust-lang",
+    "rustlang",
+    "scala",
+    "scala-lang",
+    "scalalang",
+    "scheme",
+    "shell",
+    "shell-lang",
+    "shelllang",
+    "spring",
+    "sql",
+    "sqlite",
+    "svelte",
+    "swift",
+    "swift-lang",
+    "swiftlang",
+    "terraform",
+    "typescript",
+    "ts",
+    "vim",
+    "vue",
+    "vuejs",
+    "webpack",
+    "xml",
+    "yaml",
+    "zig",
+];
+
 pub struct Indexer {
     #[allow(dead_code)]
     index: Index,
@@ -262,8 +392,25 @@ impl Indexer {
 
     fn construct_query(&self, query_str: &str) -> anyhow::Result<Box<dyn Query>> {
         let query_parser = self.query_parser.read().unwrap();
+
+        // Boost any terms that match programming languages/frameworks
+        let boosted_query = query_str
+            .split_whitespace()
+            .map(|term| {
+                if TECH_TERMS_TO_BOOST
+                    .iter()
+                    .any(|tech| tech.eq_ignore_ascii_case(term))
+                {
+                    format!("{}^1.5", term)
+                } else {
+                    term.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+
         let query = query_parser
-            .parse_query(query_str)
+            .parse_query(&boosted_query)
             .context("Could not parse query")?;
 
         Ok(query)
