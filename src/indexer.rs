@@ -20,6 +20,9 @@ use tokio::sync::mpsc;
 
 use crate::consts;
 
+/// Boost factor applied to tech terms in queries
+const TECH_TERM_BOOST: f32 = 1.5;
+
 /// Tech terms to boost within queries. Generated from `domains` using AI.
 const TECH_TERMS_TO_BOOST: &[&str] = &[
     "actix",
@@ -390,20 +393,54 @@ impl Indexer {
         Ok(results)
     }
 
+    /// Constructs a [`Query`] from the user input. We add a boost to certain tech terms to provide
+    /// more relevant results.
     fn construct_query(&self, query_str: &str) -> anyhow::Result<Box<dyn Query>> {
         let query_parser = self.query_parser.read().unwrap();
 
+        // Split query into terms, preserving quoted phrases
+        let mut terms = Vec::new();
+        let mut current_term = String::new();
+        let mut in_quotes = false;
+
+        for c in query_str.chars() {
+            match c {
+                '"' => {
+                    if in_quotes {
+                        // End quote - add the quoted phrase as a term
+                        if !current_term.is_empty() {
+                            terms.push(current_term.clone());
+                            current_term.clear();
+                        }
+                    }
+                    in_quotes = !in_quotes;
+                }
+                ' ' if !in_quotes => {
+                    // Space outside quotes - add current term if non-empty
+                    if !current_term.is_empty() {
+                        terms.push(current_term.clone());
+                        current_term.clear();
+                    }
+                }
+                _ => current_term.push(c),
+            }
+        }
+        // Add final term if non-empty
+        if !current_term.is_empty() {
+            terms.push(current_term);
+        }
+
         // Boost any terms that match programming languages/frameworks
-        let boosted_query = query_str
-            .split_whitespace()
+        let boosted_query = terms
+            .into_iter()
             .map(|term| {
-                if TECH_TERMS_TO_BOOST
+                if !term.contains('"') && TECH_TERMS_TO_BOOST
                     .iter()
-                    .any(|tech| tech.eq_ignore_ascii_case(term))
+                    .any(|tech| tech.eq_ignore_ascii_case(&term))
                 {
-                    format!("{}^1.5", term)
+                    format!("{}^{}", term, TECH_TERM_BOOST)
                 } else {
-                    term.to_string()
+                    term
                 }
             })
             .collect::<Vec<_>>()
