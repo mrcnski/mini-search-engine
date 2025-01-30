@@ -62,49 +62,65 @@ TODO
 
 ### Challenges Faced
 
-- I encountered some issues with **crawling**:
-  - The usage of the `spider` crawler due to unclear docs. Luckily, I was able
-  to [ask the developer and get a quick
-  response](https://github.com/spider-rs/spider/issues/253) without diving into
-  the source code.
-  - After implementing the `stats` page, I realized that crawling was
-    short-circuiting for some domains:
-    - **Invalid HTTPS certificates:** I enabled this by adding the
-      `.with_danger_accept_invalid_certs(true)` setting. While this is a
-      security concern, we are prioritizing relevance over security. :)
-    - **Meta refresh redirects:** Some domains had a homepage with HTML content
-      like: `<meta http-equiv="refresh" content="0; url=en/latest/contents.html"
-      />`. In the browser this is detected as an HTML redirect (as opposed to an
-      HTTP redirect). Since we are only making HTTP requests (not running a
-      headless browser), `spider` was not handling this case. TODO
-    - **Javascript-rendered pages:** Some pages, like `forum.crystal-lang.org`,
-      seem to use Javascript to render the page. Since we are not using
-      Javascript rendering, the crawler is not able to crawl these pages.
-    - **Broken domains:** some domains like `modernizr.com` are no longer
-      functional. There is nothing we can do in this situation.
-- Making the queries **performant**.
-  - Initially I was getting 50ms times for a small test index, which was
-    dangerously close to the maximum latency allowed. I played around with the
-    `FAST` flag on tantivy schema fields. Setting it on the `title` and
-    `description` fields boosted the query performance by almost 2x!
-    Interestingly, setting it on the `body` field brought the performance back
-    down to original slow levels.
-  - I continued to see performance issues, so I played around with a number of
-    strategies. I enabled a token limit on fast fields and enabled Rust compiler
-    optimizations. The biggest impact seemed to come from replacing the system
-    allocator with `jemalloc`, resulting in another **huge** performance boost!
-    (On my Mac machine, at least.) (I then switched to `mimalloc` because
-    `jemalloc` was segfaulting on my Mac.)
-  - I was still seeing fairly high latencies. After measuring the different
-    stages of `search`, I eventually realized that snippets were being generated
-    from large `<script>` elements. I added additional filtering for these
-    elements before indexing the text of a page.
-  - I also decided not to *containerize* the application to avoid any possible
-    performance hit (even though the penalty is usually very small).
+#### Crawling
+
+- I was confused about the usage of the `spider` crawler due to unclear docs.
+  Luckily, I was able to [ask the developer and get a quick
+  response](https://github.com/spider-rs/spider/issues/253) without diving
+  into the source code.
+- After implementing the `stats` page, I realized that crawling was
+  short-circuiting for some domains:
+  - **Invalid HTTPS certificates:** I enabled this by adding the
+    `.with_danger_accept_invalid_certs(true)` setting. While this is a
+    security concern, we are prioritizing relevance over security. :)
+  - **Meta refresh redirects:** Some domains had a homepage with HTML content
+    like: `<meta http-equiv="refresh" content="0; url=en/latest/contents.html"
+    />`. In the browser this is detected as an HTML redirect (as opposed to an
+    HTTP redirect). Since we are only making HTTP requests (not running a
+    headless browser), `spider` was [not handling this
+    case](https://github.com/spider-rs/spider/issues/255). TODO
+  - **Javascript-rendered pages:** Some pages, like `forum.crystal-lang.org`,
+    seem to use Javascript to render the page. Since we are not using
+    Javascript rendering, the crawler is not able to crawl these pages.
+  - **Broken domains:** some domains like `modernizr.com` are no longer
+    functional. There is nothing we can do in this situation.
+    
+#### Performance
+
+- Initially I was getting 50ms times for a small test index, which was
+  dangerously close to the maximum latency allowed. I played around with the
+  `FAST` flag on tantivy schema fields. Setting it on the `title` and
+  `description` fields boosted the query performance by almost 2x!
+  Interestingly, setting it on the `body` field brought the performance back
+  down to original levels.
+- I continued to see performance issues, so I played around with a number of
+  strategies. I enabled a token limit on fast fields and enabled Rust compiler
+  optimizations. The biggest impact seemed to come from replacing the system
+  allocator with `jemalloc`, resulting in another **huge** performance boost!
+  (On my Mac machine, at least.) (I then switched to `mimalloc` because
+  `jemalloc` was segfaulting on my Mac.)
+- I was still seeing fairly high latencies. After measuring the different
+  stages of `search`, I eventually realized that snippets were being generated
+  from large `<script>` elements. I added additional filtering for these
+  elements before indexing the text of a page.
+- I also decided not to *containerize* the application to avoid any possible
+  performance hit (even though the penalty is usually very small).
+  
+#### Ranking strategy
+
+- I tried setting some fields to fuzzy (matching with Levenshtein distance) to
+  catch user typos or similar terms. This unfortunately broke snippet
+  generation. I wrote [an issue about
+  it](https://github.com/quickwit-oss/tantivy/issues/2576).
 
 TODO
 
 ### Ranking Strategy
+
+I added querying over page titles and descriptions and prioritized these fields.
+I also flagged them as `FAST`, which I believe uses raw tokenization according
+to the docs. This means we match exact tokens in these fields, while in the body
+(which is not `FAST`) we use the default fuzzy matching. TODO
 
 TODO
 

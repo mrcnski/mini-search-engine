@@ -118,9 +118,16 @@ impl Indexer {
 
         let mut query_parser =
             QueryParser::for_index(index, vec![title_field, body_field, description_field]);
+
+        // Boost title and description fields for more relevant searches.
         query_parser.set_field_boost(title_field, 2.0);
         query_parser.set_field_boost(body_field, 1.0);
         query_parser.set_field_boost(description_field, 1.5);
+
+        // Enable fuzzy search for more error tolerance for the user.
+        // query_parser.set_field_fuzzy(title_field, false, 1, true);
+        // query_parser.set_field_fuzzy(body_field, false, 1, true);
+        // query_parser.set_field_fuzzy(description_field, false, 1, true);
 
         Ok(Arc::new(RwLock::new(query_parser)))
     }
