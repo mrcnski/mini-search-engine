@@ -462,17 +462,11 @@ fn split_query_terms(query_str: &str) -> Vec<String> {
     let mut in_quotes = false;
 
     for c in query_str.chars() {
+        if c == '"' {
+            in_quotes = !in_quotes;
+        }
+
         match c {
-            '"' => {
-                if in_quotes {
-                    // End quote - add the quoted phrase as a term
-                    if !current_term.is_empty() {
-                        terms.push(current_term.clone());
-                        current_term.clear();
-                    }
-                }
-                in_quotes = !in_quotes;
-            }
             ' ' if !in_quotes => {
                 // Space outside quotes - add current term if non-empty
                 if !current_term.is_empty() {
