@@ -281,7 +281,7 @@ impl Indexer {
             .map(|el| el.value().attr("content").unwrap_or_default())
             .unwrap_or_default();
         let body = if let Some(body) = document.select(&body_selector).next() {
-            Self::extract_text(body)
+            extract_text(body)
         } else {
             String::new()
         };
@@ -309,36 +309,6 @@ impl Indexer {
         self.update_domain_stats(domain, url, size)?;
 
         Ok(())
-    }
-
-    fn extract_text(element: ElementRef) -> String {
-        const IGNORED_ELEMENTS: &[&str] = &["script"];
-
-        let mut text = String::new();
-
-        for child in element.children() {
-            match child.value() {
-                // If the child is an element, check if it's a <script>
-                Node::Element(e) => {
-                    if !IGNORED_ELEMENTS.contains(&e.name()) {
-                        if let Some(el_ref) = ElementRef::wrap(child) {
-                            text.push_str(&Self::extract_text(el_ref));
-                        }
-                    }
-                }
-                // If the child is a text node, append its content
-                Node::Text(t) => {
-                    let t = t.trim();
-                    if !t.is_empty() {
-                        text.push_str(t);
-                        text.push(' '); // Add a space between text nodes
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        text
     }
 
     pub fn search(&self, query_str: &str, num_docs: usize) -> anyhow::Result<Vec<SearchResult>> {
@@ -397,54 +367,7 @@ impl Indexer {
     /// more relevant results.
     fn construct_query(&self, query_str: &str) -> anyhow::Result<Box<dyn Query>> {
         let query_parser = self.query_parser.read().unwrap();
-
-        // Split query into terms, preserving quoted phrases
-        let mut terms = Vec::new();
-        let mut current_term = String::new();
-        let mut in_quotes = false;
-
-        for c in query_str.chars() {
-            match c {
-                '"' => {
-                    if in_quotes {
-                        // End quote - add the quoted phrase as a term
-                        if !current_term.is_empty() {
-                            terms.push(current_term.clone());
-                            current_term.clear();
-                        }
-                    }
-                    in_quotes = !in_quotes;
-                }
-                ' ' if !in_quotes => {
-                    // Space outside quotes - add current term if non-empty
-                    if !current_term.is_empty() {
-                        terms.push(current_term.clone());
-                        current_term.clear();
-                    }
-                }
-                _ => current_term.push(c),
-            }
-        }
-        // Add final term if non-empty
-        if !current_term.is_empty() {
-            terms.push(current_term);
-        }
-
-        // Boost any terms that match programming languages/frameworks
-        let boosted_query = terms
-            .into_iter()
-            .map(|term| {
-                if !term.contains('"') && TECH_TERMS_TO_BOOST
-                    .iter()
-                    .any(|tech| tech.eq_ignore_ascii_case(&term))
-                {
-                    format!("{}^{}", term, TECH_TERM_BOOST)
-                } else {
-                    term
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" ");
+        let boosted_query = boost_tech_terms(query_str);
 
         let query = query_parser
             .parse_query(&boosted_query)
@@ -500,6 +423,92 @@ impl Indexer {
         stats.sort_by(|a, b| a.domain.cmp(&b.domain));
         Ok(stats)
     }
+}
+
+fn extract_text(element: ElementRef) -> String {
+    const IGNORED_ELEMENTS: &[&str] = &["script"];
+
+    let mut text = String::new();
+
+    for child in element.children() {
+        match child.value() {
+            // If the child is an element, check if it's a <script>
+            Node::Element(e) => {
+                if !IGNORED_ELEMENTS.contains(&e.name()) {
+                    if let Some(el_ref) = ElementRef::wrap(child) {
+                        text.push_str(&extract_text(el_ref));
+                    }
+                }
+            }
+            // If the child is a text node, append its content
+            Node::Text(t) => {
+                let t = t.trim();
+                if !t.is_empty() {
+                    text.push_str(t);
+                    text.push(' '); // Add a space between text nodes
+                }
+            }
+            _ => {}
+        }
+    }
+
+    text
+}
+
+/// Splits a query string into terms, preserving quoted phrases
+fn split_query_terms(query_str: &str) -> Vec<String> {
+    let mut terms = Vec::new();
+    let mut current_term = String::new();
+    let mut in_quotes = false;
+
+    for c in query_str.chars() {
+        match c {
+            '"' => {
+                if in_quotes {
+                    // End quote - add the quoted phrase as a term
+                    if !current_term.is_empty() {
+                        terms.push(current_term.clone());
+                        current_term.clear();
+                    }
+                }
+                in_quotes = !in_quotes;
+            }
+            ' ' if !in_quotes => {
+                // Space outside quotes - add current term if non-empty
+                if !current_term.is_empty() {
+                    terms.push(current_term.clone());
+                    current_term.clear();
+                }
+            }
+            _ => current_term.push(c),
+        }
+    }
+    // Add final term if non-empty
+    if !current_term.is_empty() {
+        terms.push(current_term);
+    }
+    terms
+}
+
+/// Applies boosting to tech terms in the query
+fn boost_tech_terms(query_str: &str) -> String {
+    let terms = split_query_terms(query_str);
+
+    terms
+        .into_iter()
+        .map(|term| {
+            if !term.contains('"')
+                && TECH_TERMS_TO_BOOST
+                    .iter()
+                    .any(|tech| tech.eq_ignore_ascii_case(&term))
+            {
+                format!("{}^{}", term, TECH_TERM_BOOST)
+            } else {
+                term
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[derive(Serialize, Deserialize)]
@@ -602,7 +611,7 @@ mod tests {
             .select(&Selector::parse("body").unwrap())
             .next()
             .unwrap();
-        assert_eq!(Indexer::extract_text(body), "Hello world ");
+        assert_eq!(extract_text(body), "Hello world ");
 
         // Test case 2: Text with script at root level
         let html = r#"<body>Hello <script>alert('hidden');</script>world</body>"#;
@@ -611,7 +620,7 @@ mod tests {
             .select(&Selector::parse("body").unwrap())
             .next()
             .unwrap();
-        assert_eq!(Indexer::extract_text(body), "Hello world ");
+        assert_eq!(extract_text(body), "Hello world ");
 
         // Test case 3: Text with nested script
         let html =
@@ -621,7 +630,7 @@ mod tests {
             .select(&Selector::parse("body").unwrap())
             .next()
             .unwrap();
-        assert_eq!(Indexer::extract_text(body), "Hello nested text world ");
+        assert_eq!(extract_text(body), "Hello nested text world ");
 
         // Test case 4: Multiple scripts and nested elements
         let html = r#"<body>
@@ -638,6 +647,6 @@ mod tests {
             .select(&Selector::parse("body").unwrap())
             .next()
             .unwrap();
-        assert_eq!(Indexer::extract_text(body), "Title Content Paragraph text ");
+        assert_eq!(extract_text(body), "Title Content Paragraph text ");
     }
 }
