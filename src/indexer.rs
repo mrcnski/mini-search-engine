@@ -32,14 +32,14 @@ pub struct Indexer {
 }
 
 impl Indexer {
-    pub async fn new(index_path: &str) -> anyhow::Result<Self> {
+    pub async fn new(index_path: &str, new_index: bool) -> anyhow::Result<Self> {
         let schema = Self::create_schema();
-        let index = Self::create_index(&schema, index_path).await?;
+        let index = Self::create_index(&schema, index_path, new_index).await?;
         let reader = Self::create_reader(&index)?;
         let index_writer: Arc<RwLock<IndexWriter>> =
             Arc::new(RwLock::new(index.writer(50_000_000)?));
         let query_parser = Self::create_query_parser(&index, &schema)?;
-        let stats_db = Self::create_stats_db()?;
+        let stats_db = Self::create_stats_db(new_index)?;
 
         Ok(Indexer {
             index,
@@ -63,15 +63,20 @@ impl Indexer {
         schema_builder.build()
     }
 
-    async fn create_index(schema: &Schema, index_path: &str) -> anyhow::Result<Index> {
-        // Delete any existing index.
-        // TODO: Remove this once we finalize the schema.
-        let _ = tokio::fs::remove_dir_all(index_path).await?;
+    async fn create_index(schema: &Schema, index_path: &str, new_index: bool) -> anyhow::Result<Index> {
+        if new_index {
+            // Delete any existing index.
+            let _ = tokio::fs::remove_dir_all(index_path).await?;
+        }
 
         // Create index directory if it doesn't exist
         tokio::fs::create_dir_all(index_path).await?;
 
-        let mut index = Index::create_in_dir(index_path, schema.clone())?;
+        let mut index = if new_index {
+            Index::create_in_dir(index_path, schema.clone())?
+        } else {
+            Index::open_in_dir(index_path)?
+        };
 
         let ff_tokenizer_manager = tokenizer::TokenizerManager::default();
         ff_tokenizer_manager.register(
@@ -120,9 +125,10 @@ impl Indexer {
         Ok(Arc::new(RwLock::new(query_parser)))
     }
 
-    fn create_stats_db() -> anyhow::Result<sled::Db> {
-        // TODO: Remove this once we finalize the schema.
-        let _ = std::fs::remove_dir_all(consts::DB_NAME);
+    fn create_stats_db(new_index: bool) -> anyhow::Result<sled::Db> {
+        if new_index {
+            let _ = std::fs::remove_dir_all(consts::DB_NAME);
+        }
 
         Ok(sled::open(consts::DB_NAME)?)
     }
@@ -379,8 +385,8 @@ pub struct SearchPage {
     pub domain: String,
 }
 
-pub async fn start() -> anyhow::Result<(Arc<Indexer>, mpsc::Sender<SearchPage>)> {
-    let indexer = Arc::new(Indexer::new(consts::SEARCH_INDEX_DIR).await?);
+pub async fn start(new_index: bool) -> anyhow::Result<(Arc<Indexer>, mpsc::Sender<SearchPage>)> {
+    let indexer = Arc::new(Indexer::new(consts::SEARCH_INDEX_DIR, new_index).await?);
     let add_page_indexer = indexer.clone();
     let commit_indexer = indexer.clone();
 
