@@ -92,7 +92,7 @@ pub async fn index_handler(
             }
             Err(e) => {
                 eprintln!("ERROR: Search error for '{query}': {e}");
-                context.insert("error", &format!("An error occurred while searching"));
+                context.insert("error", "An error occurred while searching");
             }
         }
     }

@@ -90,7 +90,7 @@ impl DomainCrawler {
         self.website.crawl().await;
         self.website.unsubscribe();
 
-        Ok(recv_handle.await??)
+        recv_handle.await?
     }
 
     async fn spawn_page_handler(
@@ -115,7 +115,7 @@ impl DomainCrawler {
                 crawl_page_tasks.spawn(async move {
                     let url = page.get_url().to_string();
 
-                    Self::handle_page(page, indexer_tx, page_count, &domain.as_ref())
+                    Self::handle_page(page, indexer_tx, page_count, domain.as_ref())
                         .await
                         .with_context(|| format!("Failed to handle crawled page: {url}"))
                 });

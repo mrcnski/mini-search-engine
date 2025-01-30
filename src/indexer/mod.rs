@@ -16,7 +16,7 @@ use tantivy::{
     doc,
     query::{Query, QueryParser},
     schema::{Schema, Value, FAST, STORED, TEXT},
-    tokenizer, Index, IndexReader, IndexWriter, ReloadPolicy, SnippetGenerator, TantivyDocument,
+    Index, IndexReader, IndexWriter, ReloadPolicy, SnippetGenerator, TantivyDocument,
 };
 use tokio::sync::mpsc;
 
@@ -73,7 +73,7 @@ impl Indexer {
     ) -> anyhow::Result<Index> {
         if new_index {
             // Delete any existing index.
-            let _ = tokio::fs::remove_dir_all(index_path).await?;
+            tokio::fs::remove_dir_all(index_path).await?;
         }
 
         // Create index directory if it doesn't exist
