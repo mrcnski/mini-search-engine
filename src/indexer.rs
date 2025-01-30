@@ -12,7 +12,7 @@ use std::{
 use tantivy::{
     collector::TopDocs,
     doc,
-    query::QueryParser,
+    query::{Query, QueryParser},
     schema::{Schema, Value, FAST, STORED, TEXT},
     tokenizer, Index, IndexReader, IndexWriter, ReloadPolicy, SnippetGenerator, TantivyDocument,
 };
@@ -63,7 +63,11 @@ impl Indexer {
         schema_builder.build()
     }
 
-    async fn create_index(schema: &Schema, index_path: &str, new_index: bool) -> anyhow::Result<Index> {
+    async fn create_index(
+        schema: &Schema,
+        index_path: &str,
+        new_index: bool,
+    ) -> anyhow::Result<Index> {
         if new_index {
             // Delete any existing index.
             let _ = tokio::fs::remove_dir_all(index_path).await?;
@@ -211,12 +215,9 @@ impl Indexer {
         let schema = &self.schema;
         let title_field = schema.get_field("title").unwrap();
         let body_field = schema.get_field("body").unwrap();
-        let url_field = schema.get_field("url").unwrap();
+        let url_field = self.schema.get_field("url").unwrap();
 
-        let query_parser = self.query_parser.read().unwrap();
-        let query = query_parser
-            .parse_query(query_str)
-            .context("Could not parse query")?;
+        let query = self.construct_query(query_str)?;
 
         // Collect top results.
         let top_docs = searcher
@@ -257,6 +258,15 @@ impl Indexer {
             .collect();
 
         Ok(results)
+    }
+
+    fn construct_query(&self, query_str: &str) -> anyhow::Result<Box<dyn Query>> {
+        let query_parser = self.query_parser.read().unwrap();
+        let query = query_parser
+            .parse_query(query_str)
+            .context("Could not parse query")?;
+
+        Ok(query)
     }
 
     fn update_domain_stats(&self, domain: &str, url: &str, size: u64) -> anyhow::Result<()> {
