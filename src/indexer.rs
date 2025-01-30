@@ -597,6 +597,66 @@ mod tests {
     use scraper::Html;
 
     #[test]
+    fn test_split_query_terms() {
+        // Test basic splitting
+        assert_eq!(split_query_terms("hello world"), vec!["hello", "world"]);
+
+        // Test quoted phrases
+        assert_eq!(
+            split_query_terms("hello \"world peace\""),
+            vec!["hello", "\"world peace\""]
+        );
+
+        // Test multiple quoted phrases
+        assert_eq!(
+            split_query_terms("\"hello there\" world \"peace now\""),
+            vec!["\"hello there\"", "world", "\"peace now\""]
+        );
+
+        // Test empty quotes
+        assert_eq!(
+            split_query_terms("hello \"\" world"),
+            vec!["hello", "\"\"", "world"]
+        );
+
+        // Test unclosed quotes
+        assert_eq!(split_query_terms("hello \"world"), vec!["hello", "\"world"]);
+    }
+
+    #[test]
+    fn test_boost_tech_terms() {
+        // Test basic term boost
+        assert_eq!(
+            boost_tech_terms("rust programming"),
+            format!("rust^{} programming", TECH_TERM_BOOST)
+        );
+
+        // Test quoted phrase (should not boost)
+        assert_eq!(
+            boost_tech_terms("\"rust programming\""),
+            "\"rust programming\""
+        );
+
+        // Test mixed terms
+        assert_eq!(
+            boost_tech_terms("learning rust \"in python\" with javascript"),
+            format!(
+                "learning rust^{} \"in python\" with javascript^{}",
+                TECH_TERM_BOOST, TECH_TERM_BOOST
+            )
+        );
+
+        // Test case insensitivity
+        assert_eq!(
+            boost_tech_terms("RUST Python"),
+            format!("RUST^{} Python^{}", TECH_TERM_BOOST, TECH_TERM_BOOST)
+        );
+
+        // Test non-tech terms
+        assert_eq!(boost_tech_terms("hello world"), "hello world");
+    }
+
+    #[test]
     fn test_extract_text() {
         // Test case 1: Simple text without script
         let html = r#"<body>Hello world</body>"#;
