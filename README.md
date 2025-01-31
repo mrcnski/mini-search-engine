@@ -108,6 +108,9 @@ TODO
 
 #### Ranking strategy
 
+- `tantivy` does not provide a way to boost specific terms for more relevant
+  results. I fixed this by manually editing the query string to add a boost
+  factor to specific terms. See "Ranking Strategy" below.
 - I tried setting some fields to fuzzy (matching with Levenshtein distance) to
   catch user typos or similar terms. This unfortunately broke snippet
   generation. I wrote [an issue about
@@ -118,8 +121,6 @@ TODO
   request or fork the project to allow customizing these parameters. However, I
   assume that the default parameters were chosen with a lot of care and are good
   for most documents.
-
-TODO
 
 ### Ranking Strategy
 
@@ -134,16 +135,14 @@ project tries to improve search relevancy with some simple strategies:
     measured and this choice reconsidered.
 - In addition to querying page text, we also query over titles and descriptions
   and prioritize ("boost") these fields.
-  - These fields are also flagged as `FAST`, which I believe uses raw
-    tokenization according to the docs. This means we match exact tokens in
-    these fields, while in the body (which is not `FAST`) we use the default
-    fuzzy matching. TODO
 - Initially, the search "clojure for loop" would return a result for Crystal
-  ranked higher than results for Clojure. TODO
-- I tried to set some fields to fuzzy but ran into a bug - see "Challenges
-  Faced" above.
-
-TODO
+  ranked higher than results for Clojure. `tantivy` doesn't seem to have an easy
+  API for boosting specific terms, but I hacked together a solution that adds a
+  boost factor to each term (e.g. `"clojure for loop"` -> `"clojure^2.5 for
+  loop"`). I asked AI to generate a list of terms to boost from the list of
+  domains.
+- I tried to enable fuzzy search for some fields but ran into a bug - see
+  "Challenges Faced" above.
 
 
 ## Possible Future Directions
