@@ -64,12 +64,12 @@ TODO
 
 #### Crawling
 
-- I was confused about the usage of the `spider` crawler due to unclear docs.
-  Luckily, I was able to [ask the developer and get a quick
-  response](https://github.com/spider-rs/spider/issues/253) without diving
-  into the source code.
-- After implementing the `stats` page, I realized that crawling was
-  short-circuiting for some domains:
+- I was confused about the usage of the `spider` crawler due to unclear
+  documentation. Fortunately, I was able to [ask the developer and get a quick
+  response](https://github.com/spider-rs/spider/issues/253) without diving into
+  the source code.
+- After implementing the `stats` page, I was able to see that some domains were
+  not being crawled:
   - **Invalid HTTPS certificates:** I enabled this by adding the
     `.with_danger_accept_invalid_certs(true)` setting. While this is a
     security concern, we are prioritizing relevance over security. :)
@@ -78,12 +78,27 @@ TODO
     />`. In the browser this is detected as an HTML redirect (as opposed to an
     HTTP redirect). Since we are only making HTTP requests (not running a
     headless browser), `spider` was [not handling this
-    case](https://github.com/spider-rs/spider/issues/255). TODO
+    case](https://github.com/spider-rs/spider/issues/255). I was not able to
+    handle this case with `spider`'s API, so I resorted to forking it and making
+    a hacky modification to the source code to handle this case. I added some
+    unit tests and also confirmed that my "fix" worked with manual testing.
   - **Javascript-rendered pages:** Some pages, like `forum.crystal-lang.org`,
     seem to use Javascript to render the page. Since we are not using
     Javascript rendering, the crawler is not able to crawl these pages.
+  - **Iframes:** Sites like `cran.r-project.org/` appear to render the whole
+    site in an iframe. I did not attempt to handle this case.
   - **Broken domains:** some domains like `modernizr.com` are no longer
     functional. There is nothing we can do in this situation.
+- **Headless crawling:** `spider` has a `chrome` feature which enables headless
+  crawling with Chrome. Although we didn't need to render Javascript, I thought
+  it could help with some of the other issues discussed above. `spider` also has
+  a `smart` feature which first attempts HTTP crawling, only switching to
+  headless browsing when needed. Unfortunately, I ran into [numerous
+  issues](https://github.com/orgs/spider-rs/discussions/261) with these
+  features, and the one time that it worked, `spider` still did not handle some
+  of the edge cases discussed above. Since there was not much gain, I did not
+  investigate headless crawling more as it uses significantly more system
+  resources.
 
 #### Performance
 

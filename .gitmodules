@@ -1,0 +1,3 @@
+[submodule "spider"]
+	path = spider
+	url = https://github.com/mrcnski/spider

@@ -1774,7 +1774,6 @@ dependencies = [
  "tantivy",
  "tera",
  "tokio",
- "url",
 ]
 
 [[package]]
@@ -3119,9 +3118,7 @@ dependencies = [
 
 [[package]]
 name = "spider"
-version = "2.27.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04dc880ebdea84a8ba19c2b3fab8d21ba671bafdbd71f81f1c9eec5fcd46a6aa"
+version = "2.27.27"
 dependencies = [
  "ahash",
  "aho-corasick",
@@ -3142,6 +3139,7 @@ dependencies = [
  "quick-xml",
  "regex",
  "reqwest",
+ "scraper",
  "smallvec",
  "sqlx",
  "string-interner",
