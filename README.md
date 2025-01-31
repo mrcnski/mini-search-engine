@@ -127,6 +127,11 @@ TODO
 incorporating industry-standard techniques such as BM25 scoring. However, this
 project tries to improve search relevancy with some simple strategies:
 
+- Stemming is used for more relevant results. This has performance implications,
+  so only basic stemming is used.
+  - Lemmatization was considered, but not used because of the additional
+    overhead at query time. In the future, the actual performance hit could be
+    measured and this choice reconsidered.
 - In addition to querying page text, we also query over titles and descriptions
   and prioritize ("boost") these fields.
   - These fields are also flagged as `FAST`, which I believe uses raw

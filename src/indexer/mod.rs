@@ -15,7 +15,7 @@ use tantivy::{
     collector::TopDocs,
     doc,
     query::{Query, QueryParser},
-    schema::{Schema, Value, FAST, STORED, TEXT},
+    schema::{IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value, FAST, STORED},
     Index, IndexReader, IndexWriter, ReloadPolicy, SnippetGenerator, TantivyDocument,
 };
 use tokio::sync::mpsc;
@@ -57,12 +57,30 @@ impl Indexer {
 
     fn create_schema() -> Schema {
         let mut schema_builder = Schema::builder();
-        schema_builder.add_text_field("title", TEXT | STORED | FAST);
-        schema_builder.add_text_field("description", TEXT | STORED | FAST);
-        schema_builder.add_text_field("body", TEXT | STORED);
+
+        let text_options_fast = TextOptions::default()
+            .set_indexing_options(
+                TextFieldIndexing::default()
+                    .set_tokenizer("en_stem")
+                    .set_index_option(IndexRecordOption::WithFreqs),
+            )
+            .set_stored()
+            .set_fast(Some("en_stem"));
+        let text_options_body = TextOptions::default()
+            .set_indexing_options(
+                TextFieldIndexing::default()
+                    .set_tokenizer("en_stem")
+                    .set_index_option(IndexRecordOption::WithFreqsAndPositions),
+            )
+            .set_stored();
+
+        schema_builder.add_text_field("title", text_options_fast.clone());
+        schema_builder.add_text_field("description", text_options_fast);
+        schema_builder.add_text_field("body", text_options_body);
         schema_builder.add_text_field("url", STORED);
         schema_builder.add_text_field("domain", STORED | FAST);
         schema_builder.add_u64_field("size", STORED | FAST);
+
         schema_builder.build()
     }
 
