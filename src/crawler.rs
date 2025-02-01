@@ -57,6 +57,8 @@ impl DomainCrawler {
         recv_handle.await?
     }
 
+    /// Spawns the page handler which takes care of incoming pages from `website.crawl`. Once
+    /// `website.crawl` signals that it has exhausted all pages, the returned future resolves.
     async fn spawn_page_handler(
         &self,
         mut crawl_rx: broadcast::Receiver<Page>,
