@@ -20,7 +20,7 @@ use tantivy::{
 };
 use tokio::sync::mpsc;
 
-use crate::consts;
+use crate::CONFIG;
 use tech_terms::*;
 
 pub struct Indexer {
@@ -142,10 +142,10 @@ impl Indexer {
 
     fn create_stats_db(new_index: bool) -> anyhow::Result<sled::Db> {
         if new_index {
-            let _ = std::fs::remove_dir_all(consts::DB_NAME);
+            let _ = std::fs::remove_dir_all(&CONFIG.indexer.db_name);
         }
 
-        Ok(sled::open(consts::DB_NAME)?)
+        Ok(sled::open(&CONFIG.indexer.db_name)?)
     }
 
     pub fn add_page(&self, SearchPage { page, domain }: &SearchPage) -> anyhow::Result<()> {
@@ -443,7 +443,7 @@ pub struct SearchPage {
 }
 
 pub async fn start(new_index: bool) -> anyhow::Result<(Arc<Indexer>, mpsc::Sender<SearchPage>)> {
-    let indexer = Arc::new(Indexer::new(consts::SEARCH_INDEX_DIR, new_index).await?);
+    let indexer = Arc::new(Indexer::new(&CONFIG.indexer.search_index_dir, new_index).await?);
     let add_page_indexer = indexer.clone();
     let commit_indexer = indexer.clone();
 
@@ -461,7 +461,7 @@ pub async fn start(new_index: bool) -> anyhow::Result<(Arc<Indexer>, mpsc::Sende
     // Periodically commit.
     // NOTE: Committing can block, and is also non-async, so we use a dedicated thread.
     std::thread::spawn(move || loop {
-        std::thread::sleep(Duration::from_millis(consts::COMMIT_INTERVAL_MS));
+        std::thread::sleep(Duration::from_millis(CONFIG.indexer.commit_interval_ms));
 
         // Skip if there's nothing to commit.
         if !commit_indexer.is_dirty.load(Ordering::Relaxed) {

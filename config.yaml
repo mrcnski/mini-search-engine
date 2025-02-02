@@ -1,0 +1,15 @@
+server: 
+  name: "Mini Search Engine"
+  port: 3000
+
+crawler:
+  domains_file: "domains"
+  log_interval_per_domain: 500
+  max_pages_per_domain: 10000
+
+indexer:
+  new_index: false
+  commit_interval_ms: 2000
+  db_name: "stats.db"
+  search_index_dir: "search_index"
+  results_per_query: 10

@@ -2,7 +2,7 @@ use axum::{extract::Query, response::Html, routing::get, Extension, Router};
 use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
 use tera::{Context, Tera};
 
-use crate::{consts, indexer::Indexer};
+use crate::{CONFIG, indexer::Indexer};
 
 lazy_static::lazy_static! {
     static ref TEMPLATES: Tera = {
@@ -27,7 +27,7 @@ pub fn create_router(indexer: Arc<Indexer>) -> Router {
 
 pub async fn stats_handler(Extension(index): Extension<Arc<Indexer>>) -> Html<String> {
     let mut context = Context::new();
-    context.insert("title", &consts::NAME);
+    context.insert("title", &CONFIG.server.name);
 
     match index.get_domain_stats() {
         Ok(stats) => {
@@ -69,7 +69,7 @@ pub async fn index_handler(
     Extension(index): Extension<Arc<Indexer>>,
 ) -> Html<String> {
     let mut context = Context::new();
-    context.insert("title", &consts::NAME);
+    context.insert("title", &CONFIG.server.name);
 
     let query = params
         .iter()
@@ -81,7 +81,7 @@ pub async fn index_handler(
         context.insert("query", &query);
 
         let start = Instant::now();
-        let search_result = index.search(&query, consts::RESULTS_PER_QUERY);
+        let search_result = index.search(&query, CONFIG.indexer.results_per_query);
         let duration = start.elapsed();
 
         match search_result {

@@ -12,7 +12,7 @@ use tokio::{
     task::{JoinHandle, JoinSet},
 };
 
-use crate::{consts, indexer::SearchPage};
+use crate::{CONFIG, indexer::SearchPage};
 
 struct DomainCrawler {
     website: Website,
@@ -109,7 +109,7 @@ impl DomainCrawler {
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| Some(x + 1))
             .unwrap_or_else(|e| e)
             + 1; // Add 1 since the previous value is returned.
-        if cur_count % consts::LOG_INTERVAL_PER_DOMAIN == 0 {
+        if cur_count % CONFIG.crawler.log_interval_per_domain == 0 {
             println!("{domain}: crawled {cur_count} pages...");
         }
 
@@ -153,7 +153,7 @@ async fn crawl_domains(
 
         let indexer_tx = indexer_tx.clone();
         crawl_domain_tasks.spawn(async move {
-            let mut crawler = DomainCrawler::new(&domain, consts::MAX_PAGES_PER_DOMAIN)
+            let mut crawler = DomainCrawler::new(&domain, CONFIG.crawler.max_pages_per_domain)
                 .with_context(|| format!("{domain}: Failed to create crawler"))?;
             crawler
                 .crawl_domain(indexer_tx)
@@ -186,7 +186,7 @@ async fn crawl_domains(
 
 async fn get_domains_to_crawl() -> anyhow::Result<Vec<String>> {
     // We assume one valid domain per line.
-    let domains = tokio::fs::read_to_string(consts::DOMAINS_FILE).await?;
+    let domains = tokio::fs::read_to_string(&CONFIG.crawler.domains_file).await?;
     // let domains = domains.lines().take(20);
     Ok(domains.lines().map(|s| s.to_string()).collect())
 }
