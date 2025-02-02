@@ -12,7 +12,6 @@ pub struct Config {
 #[derive(Debug, Deserialize)]
 pub struct ServerConfig {
     pub name: String,
-    pub port: u16,
 }
 
 /// Crawler settings

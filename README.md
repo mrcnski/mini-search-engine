@@ -49,8 +49,27 @@ distributed systems, and provide additional features that were not needed here.
 
 ## Installation/Deployment
 
-TODO: submodule init
-  * Fill this out after doing it on server
+### Native (recommended for best performance)
+
+- Clone the repository:
+
+```
+git clone --recurse-submodules https://github.com/mrcnski/mini-search-engine
+```
+
+- Install any missing dependencies (e.g. `apt-get update && apt-get install -y pkg-config libssl-dev`).
+- Make sure [Rust is installed](https://www.rust-lang.org/tools/install).
+- `cargo run --release`
+
+### Docker
+
+- Clone the repository:
+
+```
+git clone --recurse-submodules https://github.com/mrcnski/mini-search-engine
+```
+
+- `docker compose up`
 
 ## Technical Details
 
@@ -207,5 +226,5 @@ Possible future changes/enhancements include:
       supports this out-of-the-box.
 - [ ] Support for lemmatization for even more relevant results. (But this should
       be measured as it may affect query performance.)
-- [ ] Put limits on page titles and descriptions (especially since we boost
-      these fields).
+- [ ] Limit page title and description lengths before indexing, like Google does
+      (to avoid keyword stuffing, since we boost these fields).

@@ -1,0 +1,11 @@
+services:
+  search-engine:
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - RUST_LOG=info
+      - PORT=${PORT:-3000}
+    restart: no

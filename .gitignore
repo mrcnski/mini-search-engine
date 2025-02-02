@@ -4,5 +4,7 @@ search_index/
 stats.db/
 
 # Added by cargo
-
 /target
+
+# Docker data
+data/
