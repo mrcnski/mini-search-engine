@@ -1,39 +1,100 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Mini Search Engine</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
     <style>
-        body { font-family: Arial, sans-serif; margin: 40px; }
-        .input-form { margin-bottom: 20px; }
-        .results { background: #f0f0f0; padding: 20px; border-radius: 5px; }
+        :root {
+            --primary: #1e88e5;
+            --primary-hover: #1976d2;
+        }
+        .container { 
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        nav {
+            background: var(--primary);
+            padding: 1rem;
+            margin-bottom: 2rem;
+        }
+        nav a {
+            color: white;
+            text-decoration: none;
+        }
+        nav a:hover {
+            text-decoration: underline;
+        }
+        .search-box {
+            display: flex;
+            gap: 1rem;
+            margin: 2rem 0;
+        }
+        .search-box input {
+            flex: 1;
+        }
+        .results {
+            background: var(--card-background-color);
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-top: 2rem;
+        }
+        .result-item {
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--card-border-color);
+        }
+        .result-item:last-child {
+            border-bottom: none;
+        }
+        .result-title {
+            margin: 0;
+            color: var(--primary);
+        }
+        .result-snippet {
+            margin-top: 0.5rem;
+            color: var(--card-color);
+        }
+        .meta {
+            font-size: 0.9rem;
+            color: var(--muted-color);
+            margin-bottom: 1rem;
+        }
     </style>
 </head>
 
 <body>
-    <h1>{{ title }}</h1>
-    <p><a href="/stats">View Statistics</a></p>
+    <nav>
+        <div class="container">
+            <strong><a href="/">{{ title }}</a></strong>
+            <a href="/stats" style="float: right;">Statistics</a>
+        </div>
+    </nav>
 
-    <div class="input-form">
-        <input type="text" id="searchInput" autofocus>
-        <button id="searchButton" onclick="search()">Search</button>
-    </div>
+    <main class="container">
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="Enter your search query..." autofocus>
+            <button id="searchButton" onclick="search()">Search</button>
+        </div>
 
-    {% if query %}
-        <div class='results'>
-            <h2>Search Results:</h2>
-            <i>{{ num_results }} results in {{ duration }}</i>
-            <ul>
+        {% if query %}
+            <div class="results">
+                <div class="meta">
+                    Found {{ num_results }} results in {{ duration }}
+                </div>
                 {% for result in results %}
-                    <div>
-                        <h3>
+                    <article class="result-item">
+                        <h3 class="result-title">
                             <a href="{{ result.url }}">{{ result.title }}</a>
                         </h3>
-                        <p>{{ result.snippet | safe }}</p>
-                    </div>
+                        <p class="result-snippet">{{ result.snippet | safe }}</p>
+                    </article>
                 {% endfor %}
-            </ul>
-        </div>
-    {% endif %}
+            </div>
+        {% endif %}
+    </main>
 
     <script defer>
         function search() {
