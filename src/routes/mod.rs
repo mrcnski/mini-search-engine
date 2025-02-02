@@ -1,8 +1,11 @@
 use axum::{extract::Query, response::Html, routing::get, Extension, Router};
-use std::{collections::HashMap, str::FromStr, sync::Arc, time::Instant};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 use tera::{Context, Tera};
 
-use crate::{CONFIG, indexer::Indexer};
+mod stats;
+
+use crate::{indexer::Indexer, CONFIG};
+use stats::stats_handler;
 
 lazy_static::lazy_static! {
     static ref TEMPLATES: Tera = {
@@ -23,45 +26,6 @@ pub fn create_router(indexer: Arc<Indexer>) -> Router {
         .route("/", get(index_handler))
         .route("/stats", get(stats_handler))
         .layer(Extension(indexer))
-}
-
-pub async fn stats_handler(Extension(index): Extension<Arc<Indexer>>) -> Html<String> {
-    let mut context = Context::new();
-    context.insert("title", &CONFIG.server.name);
-
-    match index.get_domain_stats() {
-        Ok(stats) => {
-            let total_pages: u64 = stats.iter().map(|s| s.page_count).sum();
-            let total_size: u64 = stats
-                .iter()
-                .map(|s| {
-                    bytesize::ByteSize::from_str(&s.total_size)
-                        .map(|size| size.as_u64())
-                        .unwrap_or(0)
-                })
-                .sum();
-
-            context.insert("stats", &stats);
-            context.insert("total_pages", &total_pages);
-            context.insert(
-                "total_size",
-                &humansize::format_size(total_size, humansize::DECIMAL),
-            );
-        }
-        Err(e) => {
-            eprintln!("ERROR: Failed to get domain stats: {e}");
-            context.insert("error", "Failed to get domain statistics");
-        }
-    }
-
-    Html(
-        TEMPLATES
-            .render("stats.html", &context)
-            .unwrap_or_else(|e| {
-                eprintln!("Template error: {e}");
-                "Template error".to_string()
-            }),
-    )
 }
 
 pub async fn index_handler(
