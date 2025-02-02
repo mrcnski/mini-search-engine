@@ -384,7 +384,7 @@ fn boost_tech_terms(query_str: &str) -> String {
                     .iter()
                     .any(|tech| tech.eq_ignore_ascii_case(&term))
             {
-                format!("{}^{}", term, TECH_TERM_BOOST)
+                format!("{}^{}", term, CONFIG.indexer.tech_term_boost)
             } else {
                 term
             }

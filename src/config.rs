@@ -31,6 +31,7 @@ pub struct IndexerConfig {
     pub db_name: String,
     pub search_index_dir: String,
     pub results_per_query: usize,
+    pub tech_term_boost: f32,
 }
 
 impl Config {

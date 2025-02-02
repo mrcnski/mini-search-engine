@@ -1,6 +1,3 @@
-/// Boost factor applied to tech terms in queries
-pub const TECH_TERM_BOOST: f32 = 2.5;
-
 /// Tech terms to boost within queries. Generated from `domains` using AI.
 pub const TECH_TERMS_TO_BOOST: &[&str] = &[
     "actix",
