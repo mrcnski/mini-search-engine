@@ -1,9 +1,5 @@
 use anyhow::{self, Context};
-use spider::{
-    page::Page,
-    tokio,
-    website::Website,
-};
+use spider::{page::Page, tokio, website::Website};
 use std::{
     sync::{
         atomic::{AtomicU32, Ordering},
@@ -166,13 +162,22 @@ async fn crawl_domains(
 
             Ok(domain)
         });
+
+        // Limit the number of domains we crawl concurrently.
+        while crawl_domain_tasks.len() > 16 {
+            // We just checked the length, unwrap.
+            match crawl_domain_tasks.join_next().await.unwrap()? {
+                Ok(domain) => println!("{domain}: finished crawling!"),
+                Err(e) => eprintln!("ERROR: {e}"),
+            }
+        }
     }
 
     // Wait for all domain crawlers to finish.
     while let Some(result) = crawl_domain_tasks.join_next().await {
         match result? {
             Ok(domain) => println!("{domain}: finished crawling!"),
-            Err(e) => eprintln!("ERROR: failed to crawl: {e}"),
+            Err(e) => eprintln!("ERROR: {e}"),
         }
     }
 
@@ -182,7 +187,6 @@ async fn crawl_domains(
 async fn get_domains_to_crawl() -> anyhow::Result<Vec<String>> {
     // We assume one valid domain per line.
     let domains = tokio::fs::read_to_string(consts::DOMAINS_FILE).await?;
-    // TODO: remove the `take`. Just want a small test set for now.
-    let domains = domains.lines().take(20);
-    Ok(domains.map(|s| s.to_string()).collect())
+    // let domains = domains.lines().take(20);
+    Ok(domains.lines().map(|s| s.to_string()).collect())
 }

@@ -19,11 +19,12 @@ spider = { version = "2.27", path = "spider/spider" }
 tantivy = "0.22.0"
 tera = "1.19.1"
 tokio = { version = "1.0", features = ["full"] }
-# TODO: Enable before finishing project?
-# opt-level = 3           # Use "3" for maximum speed
-# debug = false           # Disable debug information
-# lto = "fat"             # Enable Link Time Optimization (LTO)
-# codegen-units = 1       # Reduce codegen units for better optimization at the cost of compile time
-# panic = "abort"         # Avoid unwinding for smaller and faster code
-# incremental = false     # Disable incremental compilation
-# overflow-checks = false # Disable overflow checks for optimized arithmetic
+
+[profile.release]
+opt-level = 3           # Use "3" for maximum speed
+debug = false           # Disable debug information
+lto = "fat"             # Enable Link Time Optimization (LTO)
+codegen-units = 1       # Reduce codegen units for better optimization at the cost of compile time
+panic = "abort"         # Avoid unwinding for smaller and faster code
+incremental = false     # Disable incremental compilation
+overflow-checks = false # Disable overflow checks for optimized arithmetic

@@ -461,7 +461,7 @@ pub async fn start(new_index: bool) -> anyhow::Result<(Arc<Indexer>, mpsc::Sende
     // Periodically commit.
     // NOTE: Committing can block, and is also non-async, so we use a dedicated thread.
     std::thread::spawn(move || loop {
-        std::thread::sleep(Duration::from_millis(500));
+        std::thread::sleep(Duration::from_millis(consts::COMMIT_INTERVAL_MS));
 
         // Skip if there's nothing to commit.
         if !commit_indexer.is_dirty.load(Ordering::Relaxed) {
