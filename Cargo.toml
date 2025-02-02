@@ -20,6 +20,7 @@ spider = { version = "2.27", path = "spider/spider" }
 tantivy = "0.22.0"
 tera = "1.19.1"
 tokio = { version = "1.0", features = ["full"] }
+tower-http = { version = "0.5", features = ["fs"] }
 
 [profile.release]
 opt-level = 3           # Use "3" for maximum speed

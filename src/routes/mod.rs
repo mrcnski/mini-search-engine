@@ -1,6 +1,12 @@
-use axum::{extract::Query, response::Html, routing::get, Extension, Router};
+use axum::{
+    extract::Query,
+    response::Html,
+    routing::{get, get_service},
+    Extension, Router,
+};
 use std::{collections::HashMap, sync::Arc, time::Instant};
 use tera::{Context, Tera};
+use tower_http::services::ServeDir;
 
 mod stats;
 
@@ -25,6 +31,7 @@ pub fn create_router(indexer: Arc<Indexer>) -> Router {
     Router::new()
         .route("/", get(index_handler))
         .route("/stats", get(stats_handler))
+        .nest_service("/assets", get_service(ServeDir::new("assets")))
         .layer(Extension(indexer))
 }
 
