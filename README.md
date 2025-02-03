@@ -57,7 +57,7 @@ distributed systems, and provide additional features that were not needed here.
 git clone --recurse-submodules https://github.com/mrcnski/mini-search-engine
 ```
 
-- Install any missing dependencies (e.g. `apt-get update && apt-get install -y pkg-config libssl-dev`).
+- Install any missing dependencies (e.g. `apt-get update && apt-get install -y build-essential pkg-config libssl-dev`).
 - Make sure [Rust is installed](https://www.rust-lang.org/tools/install).
 - `cargo run --release`
 
