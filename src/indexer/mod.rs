@@ -272,7 +272,11 @@ impl Indexer {
     /// more relevant results.
     fn construct_query(&self, query_str: &str) -> anyhow::Result<Box<dyn Query>> {
         let query_parser = self.query_parser.read().unwrap();
-        let boosted_query = boost_tech_terms(query_str);
+
+        // For better performance, remove semicolons from the query before passing it to tantivy.
+        let query_str = query_str.replace(";", " ");
+
+        let boosted_query = boost_tech_terms(&query_str);
 
         // Parse the user query on a best-effort basis, ignoring any errors.
         let (query, _ignored_errors) = query_parser.parse_query_lenient(&boosted_query);
