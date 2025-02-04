@@ -17,7 +17,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9.34"
 sled = "0.34"
 spider = { version = "2.27", path = "spider/spider" }
-tantivy = "0.22.0"
+tantivy = { version = "0.23.0", path = "tantivy" }
 tera = "1.19.1"
 tokio = { version = "1.0", features = ["full"] }
 tower-http = { version = "0.5", features = ["fs"] }

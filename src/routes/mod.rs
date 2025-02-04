@@ -35,7 +35,7 @@ pub fn create_router(indexer: Arc<Indexer>) -> Router {
         .layer(Extension(indexer))
 }
 
-pub async fn index_handler(
+async fn index_handler(
     Query(params): Query<HashMap<String, String>>,
     Extension(index): Extension<Arc<Indexer>>,
 ) -> Html<String> {

@@ -1,3 +1,6 @@
 [submodule "spider"]
 	path = spider
 	url = https://github.com/mrcnski/spider
+[submodule "tantivy"]
+	path = tantivy
+	url = https://github.com/mrcnski/tantivy

@@ -16,7 +16,8 @@ use tantivy::{
     doc,
     query::{Query, QueryParser},
     schema::{IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value, FAST, STORED},
-    Index, IndexReader, IndexWriter, ReloadPolicy, SnippetGenerator, TantivyDocument,
+    snippet::SnippetGenerator,
+    Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument,
 };
 use tokio::sync::mpsc;
 
@@ -204,9 +205,7 @@ impl Indexer {
         let searcher = reader.searcher();
 
         let schema = &self.schema;
-        let title_field = schema.get_field("title").unwrap();
         let body_field = schema.get_field("body").unwrap();
-        let url_field = self.schema.get_field("url").unwrap();
 
         let query = self.construct_query(query_str)?;
 
@@ -215,15 +214,27 @@ impl Indexer {
             .search(&query, &TopDocs::with_limit(num_docs))
             .context("Could not execute search")?;
 
-        // Create a SnippetGenerator
-        let snippet_generator = SnippetGenerator::create(&searcher, &*query, body_field)?;
-
         // Display results.
-        let results = top_docs
-            .into_iter()
-            .map(|(_score, doc_address)| {
+        //
+        // NOTE: We parallelize this because snippet generation can be expensive. We use threads
+        // instead of tasks because of a strange compiler error. (Snippet generation is blocking,
+        // anyway.)
+        let mut threads = vec![];
+        for (_score, doc_address) in top_docs {
+            let (snippet_generator, retrieved_doc) = {
                 let retrieved_doc: TantivyDocument = searcher.doc(doc_address).unwrap();
 
+                // Create a SnippetGenerator
+                let snippet_generator =
+                    SnippetGenerator::create(&searcher, &*query, body_field).unwrap();
+
+                (snippet_generator, retrieved_doc)
+            };
+
+            let title_field = schema.get_field("title").unwrap();
+            let url_field = schema.get_field("url").unwrap();
+
+            threads.push(std::thread::spawn(move || {
                 let title = retrieved_doc
                     .get_first(title_field)
                     .unwrap()
@@ -245,7 +256,13 @@ impl Indexer {
                     url,
                     snippet,
                 }
-            })
+            }));
+        }
+
+        // TODO: add some timeout in case of a stalled thread.
+        let results = threads
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
             .collect();
 
         Ok(results)
@@ -258,8 +275,7 @@ impl Indexer {
         let boosted_query = boost_tech_terms(query_str);
 
         // Parse the user query on a best-effort basis, ignoring any errors.
-        let (query, _ignored_errors) = query_parser
-            .parse_query_lenient(&boosted_query);
+        let (query, _ignored_errors) = query_parser.parse_query_lenient(&boosted_query);
 
         Ok(query)
     }
