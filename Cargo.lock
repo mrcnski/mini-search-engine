@@ -2077,6 +2077,7 @@ dependencies = [
 [[package]]
 name = "ownedbytes"
 version = "0.7.0"
+source = "git+https://github.com/mrcnski/tantivy#4a903733490fb7fddbcb5ac61e2ab2e430a99c68"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -3224,6 +3225,7 @@ dependencies = [
 [[package]]
 name = "spider"
 version = "2.27.27"
+source = "git+https://github.com/mrcnski/spider#ff6b17c8e5abe15672123efe3ef915b237c2f8ca"
 dependencies = [
  "ahash",
  "aho-corasick",
@@ -3644,6 +3646,7 @@ dependencies = [
 [[package]]
 name = "tantivy"
 version = "0.23.0"
+source = "git+https://github.com/mrcnski/tantivy#4a903733490fb7fddbcb5ac61e2ab2e430a99c68"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -3694,6 +3697,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.6.0"
+source = "git+https://github.com/mrcnski/tantivy#4a903733490fb7fddbcb5ac61e2ab2e430a99c68"
 dependencies = [
  "bitpacking",
 ]
@@ -3701,6 +3705,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.3.0"
+source = "git+https://github.com/mrcnski/tantivy#4a903733490fb7fddbcb5ac61e2ab2e430a99c68"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -3715,6 +3720,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.7.0"
+source = "git+https://github.com/mrcnski/tantivy#4a903733490fb7fddbcb5ac61e2ab2e430a99c68"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -3737,6 +3743,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.22.0"
+source = "git+https://github.com/mrcnski/tantivy#4a903733490fb7fddbcb5ac61e2ab2e430a99c68"
 dependencies = [
  "nom",
 ]
@@ -3744,6 +3751,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.3.0"
+source = "git+https://github.com/mrcnski/tantivy#4a903733490fb7fddbcb5ac61e2ab2e430a99c68"
 dependencies = [
  "futures-util",
  "itertools",
@@ -3756,6 +3764,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.3.0"
+source = "git+https://github.com/mrcnski/tantivy#4a903733490fb7fddbcb5ac61e2ab2e430a99c68"
 dependencies = [
  "murmurhash32",
  "rand_distr",
@@ -3765,6 +3774,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.3.0"
+source = "git+https://github.com/mrcnski/tantivy#4a903733490fb7fddbcb5ac61e2ab2e430a99c68"
 dependencies = [
  "serde",
 ]
