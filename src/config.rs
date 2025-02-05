@@ -35,7 +35,7 @@ pub struct IndexerConfig {
 impl Config {
     #[cfg(not(test))]
     pub fn load() -> anyhow::Result<Self> {
-        let config_str = fs::read_to_string("config.yaml")?;
+        let config_str = std::fs::read_to_string("config.yaml")?;
         let config: Config = serde_yaml::from_str(&config_str)?;
         Ok(config)
     }

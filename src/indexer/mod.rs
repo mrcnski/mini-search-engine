@@ -156,6 +156,7 @@ impl Indexer {
         Ok(sled::open(db_dir)?)
     }
 
+    #[allow(dead_code)]
     pub async fn delete(&self) -> anyhow::Result<()> {
         let index_path = &self.config.index_dir;
         let db_dir = &self.config.db_dir;
