@@ -44,7 +44,7 @@ impl Indexer {
         let index_writer: Arc<RwLock<IndexWriter>> =
             Arc::new(RwLock::new(index.writer(50_000_000)?));
         let query_parser = Self::create_query_parser(&index, &schema)?;
-        let stats_db = Self::create_stats_db(config.new_index, &config.db_file)?;
+        let stats_db = Self::create_stats_db(config.new_index, &config.db_dir).await?;
 
         Ok(Indexer {
             index,
@@ -94,7 +94,7 @@ impl Indexer {
     ) -> anyhow::Result<Index> {
         if new_index {
             // Delete any existing index.
-            tokio::fs::remove_dir_all(index_path).await?;
+            let _ = tokio::fs::remove_dir_all(index_path).await;
         }
 
         // Create index directory if it doesn't exist
@@ -143,12 +143,28 @@ impl Indexer {
         Ok(Arc::new(RwLock::new(query_parser)))
     }
 
-    fn create_stats_db(new_index: bool, db_name: &str) -> anyhow::Result<sled::Db> {
+    async fn create_stats_db(new_index: bool, db_dir: &str) -> anyhow::Result<sled::Db> {
         if new_index {
-            let _ = std::fs::remove_dir_all(db_name);
+            let _ = tokio::fs::remove_dir_all(db_dir).await;
         }
 
-        Ok(sled::open(db_name)?)
+        // Create directory if it doesn't exist.
+        if let Some(dir) = std::path::Path::new(db_dir).parent() {
+            tokio::fs::create_dir_all(dir).await?;
+        }
+
+        Ok(sled::open(db_dir)?)
+    }
+
+    pub async fn delete(&self) -> anyhow::Result<()> {
+        let index_path = &self.config.index_dir;
+        let db_dir = &self.config.db_dir;
+
+        // Delete the index directory and stats database.
+        let _ = tokio::fs::remove_dir_all(index_path).await;
+        let _ = tokio::fs::remove_dir_all(db_dir).await;
+
+        Ok(())
     }
 
     pub fn add_page(&self, SearchPage { page, domain }: &SearchPage) -> anyhow::Result<()> {
@@ -518,6 +534,8 @@ mod tests {
     use super::*;
     use scraper::Html;
 
+    const TECH_TERM_BOOST: f32 = 1.5;
+
     #[test]
     fn test_split_query_terms() {
         // Test basic splitting
@@ -549,19 +567,22 @@ mod tests {
     fn test_boost_tech_terms() {
         // Test basic term boost
         assert_eq!(
-            boost_tech_terms("rust programming"),
+            boost_tech_terms("rust programming", TECH_TERM_BOOST),
             format!("rust^{} programming", TECH_TERM_BOOST)
         );
 
         // Test quoted phrase (should not boost)
         assert_eq!(
-            boost_tech_terms("\"rust programming\""),
+            boost_tech_terms("\"rust programming\"", TECH_TERM_BOOST),
             "\"rust programming\""
         );
 
         // Test mixed terms
         assert_eq!(
-            boost_tech_terms("learning rust \"in python\" with javascript"),
+            boost_tech_terms(
+                "learning rust \"in python\" with javascript",
+                TECH_TERM_BOOST
+            ),
             format!(
                 "learning rust^{} \"in python\" with javascript^{}",
                 TECH_TERM_BOOST, TECH_TERM_BOOST
@@ -570,12 +591,15 @@ mod tests {
 
         // Test case insensitivity
         assert_eq!(
-            boost_tech_terms("RUST Python"),
+            boost_tech_terms("RUST Python", TECH_TERM_BOOST),
             format!("RUST^{} Python^{}", TECH_TERM_BOOST, TECH_TERM_BOOST)
         );
 
         // Test non-tech terms
-        assert_eq!(boost_tech_terms("hello world"), "hello world");
+        assert_eq!(
+            boost_tech_terms("hello world", TECH_TERM_BOOST),
+            "hello world"
+        );
     }
 
     #[test]

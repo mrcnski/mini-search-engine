@@ -30,3 +30,6 @@ codegen-units = 1       # Reduce codegen units for better optimization at the co
 panic = "abort"         # Avoid unwinding for smaller and faster code
 incremental = false     # Disable incremental compilation
 overflow-checks = false # Disable overflow checks for optimized arithmetic
+
+[dev-dependencies]
+tower = "0.5.2"

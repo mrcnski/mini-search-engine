@@ -11,6 +11,6 @@ indexer:
   # Clear any existing index and do the initial crawl again.
   new_index: false
   index_dir: "data/search_index"
-  db_file: "data/stats.db"
+  db_dir: "data/stats.db"
   commit_interval_ms: 2000
   tech_term_boost: 1.5

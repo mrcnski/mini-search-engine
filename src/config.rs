@@ -1,5 +1,4 @@
 use serde::Deserialize;
-use std::fs;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Config {
@@ -28,7 +27,7 @@ pub struct CrawlerConfig {
 pub struct IndexerConfig {
     pub new_index: bool,
     pub index_dir: String,
-    pub db_file: String,
+    pub db_dir: String,
     pub commit_interval_ms: u64,
     pub tech_term_boost: f32,
 }
@@ -39,6 +38,10 @@ impl Config {
         let config_str = fs::read_to_string("config.yaml")?;
         let config: Config = serde_yaml::from_str(&config_str)?;
         Ok(config)
+    }
+    #[cfg(test)]
+    pub fn load() -> anyhow::Result<Self> {
+        unimplemented!("load() should not be called in tests, see load_test()");
     }
 
     #[cfg(test)]
@@ -58,7 +61,7 @@ impl Config {
             indexer: IndexerConfig {
                 new_index: true,
                 index_dir: format!("{TEST_DIR}/index_{test_name}"),
-                db_file: format!("{TEST_DIR}/test_db.db"),
+                db_dir: format!("{TEST_DIR}/db_{test_name}.db"),
                 commit_interval_ms: 1000,
                 tech_term_boost: 1.0,
             },

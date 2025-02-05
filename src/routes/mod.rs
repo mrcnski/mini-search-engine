@@ -10,7 +10,7 @@ use tower_http::services::ServeDir;
 
 mod stats;
 
-use crate::{indexer::Indexer, config::ServerConfig};
+use crate::{config::ServerConfig, indexer::Indexer};
 use stats::stats_handler;
 
 lazy_static::lazy_static! {
@@ -38,7 +38,7 @@ pub fn create_router(indexer: Arc<Indexer>, config: &ServerConfig) -> Router {
         indexer,
         config: config.clone(),
     };
-    
+
     Router::new()
         .route("/", get(index_handler))
         .route("/stats", get(stats_handler))
@@ -105,4 +105,101 @@ async fn index_handler(
     };
     Html(html)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::Request;
+    use std::future::Future;
+    use tower::ServiceExt;
+
+    use crate::Config;
+
+    async fn with_app<F, T>(test_name: &str, f: F)
+    where
+        F: FnOnce(Router, ServerConfig) -> T,
+        T: Future<Output = anyhow::Result<()>>,
+    {
+        let config = Config::load_test(test_name);
+        let indexer = Arc::new(Indexer::new(&config.indexer).await.unwrap());
+        let app = create_router(indexer.clone(), &config.server);
+
+        f(app, config.server).await.unwrap();
+
+        // Clean up after test.
+        indexer.delete().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_index_handler_no_query() {
+        with_app("test_index_handler_no_query", |app, config| {
+            async move {
+                let response = app
+                    .oneshot(Request::builder().uri("/").body("".to_string()).unwrap())
+                    .await?;
+
+                assert_eq!(response.status(), 200);
+                let body = String::from_utf8(
+                    axum::body::to_bytes(response.into_body(), 10_000)
+                        .await?
+                        .to_vec(),
+                )?;
+                assert!(body.contains(&config.name));
+                assert!(!body.contains("results")); // No results section when no query
+
+                Ok(())
+            }
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_index_handler_with_query() {
+        with_app("test_index_handler_with_query", |app, config| {
+            async move {
+                let response = app
+                    .oneshot(Request::builder().uri("/?q=test").body("".to_string())?)
+                    .await?;
+
+                assert_eq!(response.status(), 200);
+                let body = String::from_utf8(
+                    axum::body::to_bytes(response.into_body(), 10_000)
+                        .await?
+                        .to_vec(),
+                )?;
+                assert!(body.contains(&config.name));
+                assert!(body.contains("query")); // Query should be shown
+
+                Ok(())
+            }
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn test_index_handler_long_query() {
+        with_app("test_index_handler_long_query", |app, _config| {
+            async move {
+                let long_query = "x".repeat(300);
+                let response = app
+                    .oneshot(
+                        Request::builder()
+                            .uri(&format!("/?q={}", long_query))
+                            .body("".to_string())?,
+                    )
+                    .await?;
+
+                assert_eq!(response.status(), 200);
+                let body = String::from_utf8(
+                    axum::body::to_bytes(response.into_body(), 10_000)
+                        .await?
+                        .to_vec(),
+                )?;
+                assert!(body.contains("Query too long")); // Should show error message
+
+                Ok(())
+            }
+        })
+        .await;
+    }
 }
