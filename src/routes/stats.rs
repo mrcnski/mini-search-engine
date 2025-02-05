@@ -1,15 +1,16 @@
 use axum::{response::Html, Extension};
-use std::{str::FromStr, sync::Arc};
+use std::{str::FromStr};
 use tera::Context;
 
-use super::TEMPLATES;
-use crate::{indexer::Indexer, CONFIG};
+use super::{ServerState, TEMPLATES};
 
-pub async fn stats_handler(Extension(index): Extension<Arc<Indexer>>) -> Html<String> {
+pub async fn stats_handler(
+    Extension(ServerState { indexer, config }): Extension<ServerState>,
+) -> Html<String> {
     let mut context = Context::new();
-    context.insert("title", &CONFIG.server.name);
+    context.insert("title", &config.name);
 
-    match index.get_domain_stats() {
+    match indexer.get_domain_stats() {
         Ok(stats) => {
             let total_pages: u64 = stats.iter().map(|s| s.page_count).sum();
             let total_size: u64 = stats

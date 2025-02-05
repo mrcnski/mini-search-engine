@@ -12,17 +12,18 @@ use tokio::{
     task::{JoinHandle, JoinSet},
 };
 
-use crate::{CONFIG, indexer::SearchPage};
+use crate::{config::CrawlerConfig, indexer::SearchPage};
 
 struct DomainCrawler {
     website: Website,
     domain: String,
+    config: Arc<CrawlerConfig>,
 }
 
 impl DomainCrawler {
-    fn new(domain: &str, page_limit: u32) -> anyhow::Result<Self> {
+    fn new(domain: &str, config: Arc<CrawlerConfig>) -> anyhow::Result<Self> {
         let website = Website::new(domain)
-            .with_limit(page_limit)
+            .with_limit(config.max_pages_per_domain)
             .with_depth(0) // No max crawl depth. Use page limit only.
             // NOTE: Accept invalid certs as we prioritize relevance over security.
             .with_danger_accept_invalid_certs(true)
@@ -34,6 +35,7 @@ impl DomainCrawler {
         Ok(Self {
             website,
             domain: domain.to_string(),
+            config,
         })
     }
 
@@ -61,6 +63,7 @@ impl DomainCrawler {
         indexer_tx: mpsc::Sender<SearchPage>,
     ) -> JoinHandle<anyhow::Result<()>> {
         let domain = Arc::new(self.domain.to_owned()); // Create owned value for the async task.
+        let config = Arc::new(self.config.clone());
 
         tokio::task::spawn(async move {
             let page_count = Arc::new(AtomicU32::new(0));
@@ -71,13 +74,14 @@ impl DomainCrawler {
                 let page_count = page_count.clone();
                 let indexer_tx = indexer_tx.clone();
                 let domain = domain.clone();
+                let config = config.clone();
 
                 // We use async and potentially-blocking methods, so spawn a task to avoid
                 // losing messages. See [`spider::website::Website::subscribe`].
                 crawl_page_tasks.spawn(async move {
                     let url = page.get_url().to_string();
 
-                    Self::handle_page(page, indexer_tx, page_count, domain.as_ref())
+                    Self::handle_page(page, indexer_tx, page_count, domain.as_ref(), &config)
                         .await
                         .with_context(|| format!("Failed to handle crawled page: {url}"))
                 });
@@ -103,13 +107,14 @@ impl DomainCrawler {
         indexer_tx: mpsc::Sender<SearchPage>,
         page_count: Arc<AtomicU32>,
         domain: &str,
+        config: &CrawlerConfig,
     ) -> anyhow::Result<()> {
         // Provide some visual indication of crawl progress.
         let cur_count = page_count
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| Some(x + 1))
             .unwrap_or_else(|e| e)
             + 1; // Add 1 since the previous value is returned.
-        if cur_count % CONFIG.crawler.log_interval_per_domain == 0 {
+        if cur_count % config.log_interval_per_domain == 0 {
             println!("{domain}: crawled {cur_count} pages...");
         }
 
@@ -126,11 +131,14 @@ impl DomainCrawler {
     }
 }
 
-pub async fn initial_crawl(indexer_tx: mpsc::Sender<SearchPage>) -> anyhow::Result<()> {
-    let domains = get_domains_to_crawl().await?;
+pub async fn initial_crawl(
+    indexer_tx: mpsc::Sender<SearchPage>,
+    config: &CrawlerConfig,
+) -> anyhow::Result<()> {
+    let domains = get_domains_to_crawl(config).await?;
 
     let start = Instant::now();
-    crawl_domains(domains, indexer_tx).await?;
+    crawl_domains(domains, indexer_tx, config).await?;
     let duration = start.elapsed();
 
     println!();
@@ -142,6 +150,7 @@ pub async fn initial_crawl(indexer_tx: mpsc::Sender<SearchPage>) -> anyhow::Resu
 async fn crawl_domains(
     domains: Vec<String>,
     indexer_tx: mpsc::Sender<SearchPage>,
+    config: &CrawlerConfig,
 ) -> anyhow::Result<()> {
     // Have separate tasks for each domain. We'll process multiple domains in parallel, and
     // hopefully not get blocked or rate-limited from any target domain. This also follows the
@@ -152,8 +161,10 @@ async fn crawl_domains(
         println!("Crawling domain: {}", domain);
 
         let indexer_tx = indexer_tx.clone();
+        let config = Arc::new(config.clone());
+
         crawl_domain_tasks.spawn(async move {
-            let mut crawler = DomainCrawler::new(&domain, CONFIG.crawler.max_pages_per_domain)
+            let mut crawler = DomainCrawler::new(&domain, config)
                 .with_context(|| format!("{domain}: Failed to create crawler"))?;
             crawler
                 .crawl_domain(indexer_tx)
@@ -184,9 +195,9 @@ async fn crawl_domains(
     Ok(())
 }
 
-async fn get_domains_to_crawl() -> anyhow::Result<Vec<String>> {
+async fn get_domains_to_crawl(config: &CrawlerConfig) -> anyhow::Result<Vec<String>> {
     // We assume one valid domain per line.
-    let domains = tokio::fs::read_to_string(&CONFIG.crawler.domains_file).await?;
+    let domains = tokio::fs::read_to_string(&config.domains_file).await?;
     // let domains = domains.lines().take(20);
     Ok(domains.lines().map(|s| s.to_string()).collect())
 }

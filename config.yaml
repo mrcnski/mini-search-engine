@@ -1,5 +1,6 @@
 server:
   name: "Mini Search Engine"
+  results_per_query: 10
 
 crawler:
   domains_file: "domains"
@@ -8,9 +9,8 @@ crawler:
 
 indexer:
   # Clear any existing index and do the initial crawl again.
-  new_index: true
+  new_index: false
+  index_dir: "data/search_index"
+  db_file: "data/stats.db"
   commit_interval_ms: 2000
-  db_name: "data/stats.db"
-  search_index_dir: "data/search_index"
-  results_per_query: 10
   tech_term_boost: 1.5

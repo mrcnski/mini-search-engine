@@ -10,7 +10,7 @@ use tower_http::services::ServeDir;
 
 mod stats;
 
-use crate::{indexer::Indexer, CONFIG};
+use crate::{indexer::Indexer, config::ServerConfig};
 use stats::stats_handler;
 
 lazy_static::lazy_static! {
@@ -27,20 +27,31 @@ lazy_static::lazy_static! {
     };
 }
 
-pub fn create_router(indexer: Arc<Indexer>) -> Router {
+#[derive(Clone)]
+struct ServerState {
+    indexer: Arc<Indexer>,
+    config: ServerConfig,
+}
+
+pub fn create_router(indexer: Arc<Indexer>, config: &ServerConfig) -> Router {
+    let state = ServerState {
+        indexer,
+        config: config.clone(),
+    };
+    
     Router::new()
         .route("/", get(index_handler))
         .route("/stats", get(stats_handler))
         .nest_service("/assets", get_service(ServeDir::new("assets")))
-        .layer(Extension(indexer))
+        .layer(Extension(state))
 }
 
 async fn index_handler(
     Query(params): Query<HashMap<String, String>>,
-    Extension(index): Extension<Arc<Indexer>>,
+    Extension(ServerState { indexer, config }): Extension<ServerState>,
 ) -> Html<String> {
     let mut context = Context::new();
-    context.insert("title", &CONFIG.server.name);
+    context.insert("title", &config.name);
 
     let query = params
         .iter()
@@ -52,7 +63,7 @@ async fn index_handler(
         context.insert("query", &query);
 
         let start = Instant::now();
-        let search_result = index.search(&query, CONFIG.indexer.results_per_query);
+        let search_result = indexer.search(&query, config.results_per_query);
         let duration = start.elapsed();
 
         match search_result {

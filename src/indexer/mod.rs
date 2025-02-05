@@ -21,7 +21,7 @@ use tantivy::{
 };
 use tokio::sync::mpsc;
 
-use crate::CONFIG;
+use crate::config::IndexerConfig;
 use tech_terms::*;
 
 pub struct Indexer {
@@ -33,17 +33,18 @@ pub struct Indexer {
     query_parser: Arc<RwLock<QueryParser>>,
     stats_db: sled::Db,
     is_dirty: AtomicBool,
+    config: IndexerConfig,
 }
 
 impl Indexer {
-    pub async fn new(index_path: &str, new_index: bool) -> anyhow::Result<Self> {
+    pub async fn new(config: &IndexerConfig) -> anyhow::Result<Self> {
         let schema = Self::create_schema();
-        let index = Self::create_index(&schema, index_path, new_index).await?;
+        let index = Self::create_index(&schema, &config.index_dir, config.new_index).await?;
         let reader = Self::create_reader(&index)?;
         let index_writer: Arc<RwLock<IndexWriter>> =
             Arc::new(RwLock::new(index.writer(50_000_000)?));
         let query_parser = Self::create_query_parser(&index, &schema)?;
-        let stats_db = Self::create_stats_db(new_index)?;
+        let stats_db = Self::create_stats_db(config.new_index, &config.db_file)?;
 
         Ok(Indexer {
             index,
@@ -53,6 +54,7 @@ impl Indexer {
             query_parser,
             stats_db,
             is_dirty: AtomicBool::new(false),
+            config: config.clone(),
         })
     }
 
@@ -141,12 +143,12 @@ impl Indexer {
         Ok(Arc::new(RwLock::new(query_parser)))
     }
 
-    fn create_stats_db(new_index: bool) -> anyhow::Result<sled::Db> {
+    fn create_stats_db(new_index: bool, db_name: &str) -> anyhow::Result<sled::Db> {
         if new_index {
-            let _ = std::fs::remove_dir_all(&CONFIG.indexer.db_name);
+            let _ = std::fs::remove_dir_all(db_name);
         }
 
-        Ok(sled::open(&CONFIG.indexer.db_name)?)
+        Ok(sled::open(db_name)?)
     }
 
     pub fn add_page(&self, SearchPage { page, domain }: &SearchPage) -> anyhow::Result<()> {
@@ -276,7 +278,7 @@ impl Indexer {
         // For better performance, remove semicolons from the query before passing it to tantivy.
         let query_str = query_str.replace(";", " ");
 
-        let boosted_query = boost_tech_terms(&query_str);
+        let boosted_query = boost_tech_terms(&query_str, self.config.tech_term_boost);
 
         // Parse the user query on a best-effort basis, ignoring any errors.
         let (query, _ignored_errors) = query_parser.parse_query_lenient(&boosted_query);
@@ -393,7 +395,7 @@ fn split_query_terms(query_str: &str) -> Vec<String> {
 }
 
 /// Applies boosting to tech terms in the query
-fn boost_tech_terms(query_str: &str) -> String {
+fn boost_tech_terms(query_str: &str, tech_term_boost: f32) -> String {
     let terms = split_query_terms(query_str);
 
     terms
@@ -404,7 +406,7 @@ fn boost_tech_terms(query_str: &str) -> String {
                     .iter()
                     .any(|tech| tech.eq_ignore_ascii_case(&term))
             {
-                format!("{}^{}", term, CONFIG.indexer.tech_term_boost)
+                format!("{}^{}", term, tech_term_boost)
             } else {
                 term
             }
@@ -462,8 +464,10 @@ pub struct SearchPage {
     pub domain: String,
 }
 
-pub async fn start(new_index: bool) -> anyhow::Result<(Arc<Indexer>, mpsc::Sender<SearchPage>)> {
-    let indexer = Arc::new(Indexer::new(&CONFIG.indexer.search_index_dir, new_index).await?);
+pub async fn start(
+    config: &IndexerConfig,
+) -> anyhow::Result<(Arc<Indexer>, mpsc::Sender<SearchPage>)> {
+    let indexer = Arc::new(Indexer::new(config).await?);
     let add_page_indexer = indexer.clone();
     let commit_indexer = indexer.clone();
 
@@ -480,8 +484,9 @@ pub async fn start(new_index: bool) -> anyhow::Result<(Arc<Indexer>, mpsc::Sende
 
     // Periodically commit.
     // NOTE: Committing can block, and is also non-async, so we use a dedicated thread.
+    let commit_interval_ms = config.commit_interval_ms;
     std::thread::spawn(move || loop {
-        std::thread::sleep(Duration::from_millis(CONFIG.indexer.commit_interval_ms));
+        std::thread::sleep(Duration::from_millis(commit_interval_ms));
 
         // Skip if there's nothing to commit.
         if !commit_indexer.is_dirty.load(Ordering::Relaxed) {

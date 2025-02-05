@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use std::fs;
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct Config {
     pub server: ServerConfig,
     pub crawler: CrawlerConfig,
@@ -9,13 +9,14 @@ pub struct Config {
 }
 
 /// Server settings
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct ServerConfig {
     pub name: String,
+    pub results_per_query: usize,
 }
 
 /// Crawler settings
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct CrawlerConfig {
     pub domains_file: String,
     pub log_interval_per_domain: u32,
@@ -23,24 +24,44 @@ pub struct CrawlerConfig {
 }
 
 /// Indexer settings
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct IndexerConfig {
     pub new_index: bool,
+    pub index_dir: String,
+    pub db_file: String,
     pub commit_interval_ms: u64,
-    pub db_name: String,
-    pub search_index_dir: String,
-    pub results_per_query: usize,
     pub tech_term_boost: f32,
 }
 
 impl Config {
+    #[cfg(not(test))]
     pub fn load() -> anyhow::Result<Self> {
         let config_str = fs::read_to_string("config.yaml")?;
         let config: Config = serde_yaml::from_str(&config_str)?;
         Ok(config)
     }
-}
 
-lazy_static::lazy_static! {
-    pub static ref CONFIG: Config = Config::load().expect("Failed to load config");
+    #[cfg(test)]
+    pub fn load_test(test_name: &str) -> Self {
+        use crate::test_utils::TEST_DIR;
+
+        Config {
+            server: ServerConfig {
+                name: "test_server".to_string(),
+                results_per_query: 10,
+            },
+            crawler: CrawlerConfig {
+                domains_file: format!("{TEST_DIR}/test_domains"),
+                log_interval_per_domain: 1,
+                max_pages_per_domain: 1,
+            },
+            indexer: IndexerConfig {
+                new_index: true,
+                index_dir: format!("{TEST_DIR}/index_{test_name}"),
+                db_file: format!("{TEST_DIR}/test_db.db"),
+                commit_interval_ms: 1000,
+                tech_term_boost: 1.0,
+            },
+        }
+    }
 }
