@@ -31,7 +31,9 @@ async fn main() -> anyhow::Result<()> {
             .context("Failed to do initial crawl")?;
     }
 
-    run_server(indexer, &config).await.context("Failed to run server")
+    run_server(indexer, &config)
+        .await
+        .context("Failed to run server")
 }
 
 async fn run_server(indexer: Arc<Indexer>, config: &Config) -> anyhow::Result<()> {

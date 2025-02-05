@@ -1,5 +1,5 @@
 use axum::{response::Html, Extension};
-use std::{str::FromStr};
+use std::str::FromStr;
 use tera::Context;
 
 use super::{ServerState, TEMPLATES};

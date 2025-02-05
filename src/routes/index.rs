@@ -64,12 +64,14 @@ pub async fn index_handler(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use axum::{body, http::Request, Router};
     use std::sync::Arc;
     use tower::ServiceExt;
 
-    use crate::Config;
+    use crate::{
+        config::{Config, ServerConfig},
+        indexer::Indexer,
+    };
 
     async fn with_app<F, T>(test_name: &str, f: F)
     where
@@ -96,9 +98,7 @@ mod tests {
 
                 assert_eq!(response.status(), 200);
                 let body = String::from_utf8(
-                    body::to_bytes(response.into_body(), 10_000)
-                        .await?
-                        .to_vec(),
+                    body::to_bytes(response.into_body(), 10_000).await?.to_vec(),
                 )?;
                 assert!(body.contains(&config.name));
                 assert!(!body.contains("results")); // No results section when no query
@@ -119,9 +119,7 @@ mod tests {
 
                 assert_eq!(response.status(), 200);
                 let body = String::from_utf8(
-                    body::to_bytes(response.into_body(), 10_000)
-                        .await?
-                        .to_vec(),
+                    body::to_bytes(response.into_body(), 10_000).await?.to_vec(),
                 )?;
                 assert!(body.contains(&config.name));
                 assert!(body.contains("query")); // Query should be shown
@@ -147,9 +145,7 @@ mod tests {
 
                 assert_eq!(response.status(), 200);
                 let body = String::from_utf8(
-                    body::to_bytes(response.into_body(), 10_000)
-                        .await?
-                        .to_vec(),
+                    body::to_bytes(response.into_body(), 10_000).await?.to_vec(),
                 )?;
                 assert!(body.contains("Query too long")); // Should show error message
 
