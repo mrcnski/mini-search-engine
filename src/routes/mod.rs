@@ -63,7 +63,12 @@ async fn index_handler(
             }
             Err(e) => {
                 eprintln!("ERROR: Search error for '{query}': {e}");
-                context.insert("error", "An error occurred while searching");
+                let error_msg = if e.to_string().contains("Query too long") {
+                    e.to_string()
+                } else {
+                    "An error occurred while searching".to_string()
+                };
+                context.insert("error", &error_msg);
             }
         }
     }

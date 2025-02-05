@@ -1,10 +1,12 @@
 .aider*
 .env
-search_index/
-stats.db/
 
 # Added by cargo
 /target
+
+# Index
+search_index/
+stats.db/
 
 # Docker data
 data/
