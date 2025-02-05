@@ -22,7 +22,11 @@
             <button id="searchButton" onclick="search()">Search</button>
         </div>
 
-        {% if query %}
+        {% if error %}
+            <div class="error">
+                {{ error }}
+            </div>
+        {% elif query %}
             <div class="results">
                 <div class="meta">
                     Found {{ num_results }} results in {{ duration }}

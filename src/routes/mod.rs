@@ -84,12 +84,25 @@ async fn index_handler(
         }
     }
 
-    Html(
-        TEMPLATES
-            .render("index.html", &context)
-            .unwrap_or_else(|e| {
-                eprintln!("Template error: {e}");
-                "Template error".to_string()
-            }),
-    )
+    let html = match TEMPLATES.render("index.html", &context) {
+        Ok(html) => html,
+        Err(e) => {
+            eprintln!("Template error: {e}");
+
+            let mut context = Context::new();
+            context.insert("title", &config.name);
+            // TODO: Call .user_error() on custom error instance.
+            //       Have a separate .server_error() so that the server error doesn't accidentally leak.
+            context.insert("error", "An internal error occurred");
+
+            TEMPLATES
+                .render("index.html", &context)
+                .unwrap_or_else(|e| {
+                    eprintln!("Critical template error: {e}");
+                    "<h1>Internal Server Error</h1>".to_string()
+                })
+        }
+    };
+    Html(html)
+}
 }

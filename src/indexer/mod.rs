@@ -203,6 +203,15 @@ impl Indexer {
     }
 
     pub fn search(&self, query_str: &str, num_docs: usize) -> anyhow::Result<Vec<SearchResult>> {
+        const MAX_QUERY_LENGTH: usize = 256;
+
+        if query_str.len() > MAX_QUERY_LENGTH {
+            return Err(anyhow::anyhow!(
+                "Query too long - maximum length is {} characters",
+                MAX_QUERY_LENGTH
+            ));
+        }
+
         let reader = self.reader.read().unwrap();
         let searcher = reader.searcher();
 
